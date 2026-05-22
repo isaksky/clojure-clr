@@ -1909,17 +1909,10 @@ namespace clojure.lang
                 cbGen.EndExceptionBlock();
                 cbGen.Emit(OpCodes.Ret);
 
-#if NET9_0_OR_GREATER
-                if (!context.CanPersist || context.UsesSameRuntimePersistedCoreAssembly)
-#endif
-                {
-                    // CustomAttributeBuilder requires runtime constructors; omit this
-                    // nonessential attribute for explicit ref-assembly targets.
-                    var descAttrBuilder =
-                     context.CreateCustomAttribute(typeof(DescriptionAttribute).GetConstructor([typeof(String)]),
-                                               [String.Format("{{:clojure-namespace {0}}}", CurrentNamespace)]);
-                    initTB.SetCustomAttribute(descAttrBuilder);
-                }
+                context.SetCustomAttribute(
+                    initTB,
+                    typeof(DescriptionAttribute).GetConstructor([typeof(String)]),
+                    [String.Format("{{:clojure-namespace {0}}}", CurrentNamespace)]);
 
                 Type initType = initTB.CreateType();
                 context.RegisterGeneratedTypeCreated(objx.GeneratedType, initType);

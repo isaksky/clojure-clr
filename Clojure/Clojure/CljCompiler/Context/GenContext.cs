@@ -564,9 +564,20 @@ namespace clojure.lang.CljCompiler.Context
 
         public CustomAttributeBuilder CreateCustomAttribute(ConstructorInfo constructor, object[] constructorArgs)
         {
-            // CustomAttributeBuilder validates constructor argument types against runtime
-            // reflection objects, so MetadataLoadContext constructors are not accepted here.
             return new CustomAttributeBuilder(constructor, constructorArgs);
+        }
+
+        public void SetCustomAttribute(TypeBuilder typeBuilder, ConstructorInfo constructor, object[] constructorArgs)
+        {
+#if NET9_0_OR_GREATER
+            if (CanPersist)
+            {
+                _assyGen.SetCustomAttribute(typeBuilder, constructor, constructorArgs);
+                return;
+            }
+#endif
+
+            typeBuilder.SetCustomAttribute(CreateCustomAttribute(constructor, constructorArgs));
         }
 
         private string CurrentGeneratedSourcePath()

@@ -355,6 +355,21 @@ namespace Clojure.Tests.LibTests
 
             Assembly assembly = Assembly.LoadFrom(sample.AssemblyPath);
             string[] referenceNames = assembly.GetReferencedAssemblies().Select(reference => reference.Name).ToArray();
+            Type initType = assembly.GetType(sample.InitTypeName, throwOnError: true);
+            System.ComponentModel.DescriptionAttribute description =
+                initType.GetCustomAttribute<System.ComponentModel.DescriptionAttribute>();
+
+            Assert.That(description, Is.Not.Null,
+                "Explicit target selection should still emit the namespace DescriptionAttribute.");
+            Assert.That(description.Description, Is.EqualTo("{:clojure-namespace " + sample.NamespaceName + "}"));
+            Assert.That(assembly.GetCustomAttribute<System.Security.SecurityTransparentAttribute>(), Is.Not.Null,
+                "Explicit target selection should emit SecurityTransparentAttribute without runtime metadata leaks.");
+            if (context.IsDebuggable)
+            {
+                Assert.That(assembly.GetCustomAttribute<DebuggableAttribute>(), Is.Not.Null,
+                    "Explicit target selection should emit DebuggableAttribute without runtime metadata leaks.");
+            }
+
             Assert.That(referenceNames, Does.Contain("System.Runtime"),
                 "Explicit target selection should bind core framework references through the selected reference assemblies.");
             Assert.That(referenceNames, Does.Not.Contain("System.Private.CoreLib"),

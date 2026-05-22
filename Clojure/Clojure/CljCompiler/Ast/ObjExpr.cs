@@ -196,7 +196,10 @@ namespace clojure.lang.CljCompiler.Ast
         internal static void MarkAsSerializable(TypeBuilder tb)
         {
             GenContext context = Compiler.CompilerContextVar.deref() as GenContext;
-            tb.SetCustomAttribute(context?.CreateCustomAttribute(Compiler.Ctor_Serializable, []) ?? new CustomAttributeBuilder(Compiler.Ctor_Serializable, []));
+            if (context is null)
+                tb.SetCustomAttribute(new CustomAttributeBuilder(Compiler.Ctor_Serializable, []));
+            else
+                context.SetCustomAttribute(tb, Compiler.Ctor_Serializable, []);
         }
 
         #endregion

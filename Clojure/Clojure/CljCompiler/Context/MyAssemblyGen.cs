@@ -207,6 +207,13 @@ public sealed class MyAssemblyGen
         _isPersistable = true;
         _isDebuggable = isDebuggable;
 
+#if NET9_0_OR_GREATER
+        SetCustomAttribute(
+            _myAssembly,
+            typeof(SecurityTransparentAttribute).GetConstructor(ReflectionUtils.EmptyTypes),
+            ArrayUtils.EmptyObjects);
+#endif
+
         if (isDebuggable) {
             SetDebuggableAttributes();
         }
@@ -217,14 +224,6 @@ public sealed class MyAssemblyGen
 
     internal void SetDebuggableAttributes()
     {
-#if NET9_0_OR_GREATER
-        if (_persistedMetadataLoadContext is not null)
-        {
-            // CustomAttributeBuilder does not accept MetadataLoadContext constructors.
-            return;
-        }
-#endif
-
         DebuggableAttribute.DebuggingModes attrs =
             DebuggableAttribute.DebuggingModes.Default |
             DebuggableAttribute.DebuggingModes.IgnoreSymbolStoreSequencePoints |
@@ -235,11 +234,208 @@ public sealed class MyAssemblyGen
 
         var debuggableCtor = typeof(DebuggableAttribute).GetConstructor(argTypes);
 
-        _myAssembly.SetCustomAttribute(new CustomAttributeBuilder(debuggableCtor, argValues));
-        _myModule.SetCustomAttribute(new CustomAttributeBuilder(debuggableCtor, argValues));
+        SetCustomAttribute(_myAssembly, debuggableCtor, argValues);
+        SetCustomAttribute(_myModule, debuggableCtor, argValues);
+    }
+
+    private void SetCustomAttribute(AssemblyBuilder target, ConstructorInfo constructor, object[] constructorArgs)
+    {
+#if NET9_0_OR_GREATER
+        if (UsePersistedCustomAttributeBlob(constructor))
+        {
+            ConstructorInfo resolvedConstructor = ResolvePersistedConstructorReference(constructor);
+            target.SetCustomAttribute(resolvedConstructor, EncodeCustomAttributeBlob(resolvedConstructor, constructorArgs));
+            return;
+        }
+#endif
+
+        target.SetCustomAttribute(new CustomAttributeBuilder(constructor, constructorArgs));
+    }
+
+    private void SetCustomAttribute(ModuleBuilder target, ConstructorInfo constructor, object[] constructorArgs)
+    {
+#if NET9_0_OR_GREATER
+        if (UsePersistedCustomAttributeBlob(constructor))
+        {
+            ConstructorInfo resolvedConstructor = ResolvePersistedConstructorReference(constructor);
+            target.SetCustomAttribute(resolvedConstructor, EncodeCustomAttributeBlob(resolvedConstructor, constructorArgs));
+            return;
+        }
+#endif
+
+        target.SetCustomAttribute(new CustomAttributeBuilder(constructor, constructorArgs));
     }
 
 #if NET9_0_OR_GREATER
+    internal void SetCustomAttribute(TypeBuilder target, ConstructorInfo constructor, object[] constructorArgs)
+    {
+        if (UsePersistedCustomAttributeBlob(constructor))
+        {
+            ConstructorInfo resolvedConstructor = ResolvePersistedConstructorReference(constructor);
+            target.SetCustomAttribute(resolvedConstructor, EncodeCustomAttributeBlob(resolvedConstructor, constructorArgs));
+            return;
+        }
+
+        target.SetCustomAttribute(new CustomAttributeBuilder(constructor, constructorArgs));
+    }
+
+    private bool UsePersistedCustomAttributeBlob(ConstructorInfo constructor)
+    {
+        return _isPersistable
+            && _persistedMetadataLoadContext is not null
+            && constructor is not null
+            && constructor is not ConstructorBuilder;
+    }
+
+    private static byte[] EncodeCustomAttributeBlob(ConstructorInfo constructor, object[] constructorArgs)
+    {
+        ParameterInfo[] parameters = constructor.GetParameters();
+        constructorArgs ??= ArrayUtils.EmptyObjects;
+        if (parameters.Length != constructorArgs.Length)
+            throw new ArgumentException("Custom attribute constructor argument count does not match the constructor signature.", nameof(constructorArgs));
+
+        List<byte> blob = new()
+        {
+            0x01,
+            0x00
+        };
+
+        for (int i = 0; i < parameters.Length; i++)
+            EncodeCustomAttributeFixedArgument(blob, parameters[i].ParameterType, constructorArgs[i]);
+
+        // Named argument count. The explicit-target AOT path currently uses this
+        // blob encoder only for constructor-only attributes.
+        blob.Add(0x00);
+        blob.Add(0x00);
+        return blob.ToArray();
+    }
+
+    private static void EncodeCustomAttributeFixedArgument(List<byte> blob, Type parameterType, object value)
+    {
+        if (parameterType.IsEnum)
+        {
+            EncodeCustomAttributeFixedArgument(blob, parameterType.GetEnumUnderlyingType(), value);
+            return;
+        }
+
+        string fullName = parameterType.FullName;
+        switch (fullName)
+        {
+            case "System.Boolean":
+                blob.Add(Convert.ToBoolean(value) ? (byte)1 : (byte)0);
+                return;
+            case "System.Char":
+                WriteUInt16(blob, Convert.ToChar(value));
+                return;
+            case "System.SByte":
+                blob.Add(unchecked((byte)Convert.ToSByte(value)));
+                return;
+            case "System.Byte":
+                blob.Add(Convert.ToByte(value));
+                return;
+            case "System.Int16":
+                WriteUInt16(blob, unchecked((ushort)Convert.ToInt16(value)));
+                return;
+            case "System.UInt16":
+                WriteUInt16(blob, Convert.ToUInt16(value));
+                return;
+            case "System.Int32":
+                WriteUInt32(blob, unchecked((uint)Convert.ToInt32(value)));
+                return;
+            case "System.UInt32":
+                WriteUInt32(blob, Convert.ToUInt32(value));
+                return;
+            case "System.Int64":
+                WriteUInt64(blob, unchecked((ulong)Convert.ToInt64(value)));
+                return;
+            case "System.UInt64":
+                WriteUInt64(blob, Convert.ToUInt64(value));
+                return;
+            case "System.Single":
+                WriteBytes(blob, BitConverter.GetBytes(Convert.ToSingle(value)));
+                return;
+            case "System.Double":
+                WriteBytes(blob, BitConverter.GetBytes(Convert.ToDouble(value)));
+                return;
+            case "System.String":
+                WriteSerString(blob, value as string);
+                return;
+            default:
+                throw new NotSupportedException(
+                    "Explicit-target persisted AOT custom attribute blobs do not yet support constructor argument type "
+                    + fullName
+                    + ".");
+        }
+    }
+
+    private static void WriteUInt16(List<byte> blob, ushort value)
+    {
+        blob.Add((byte)value);
+        blob.Add((byte)(value >> 8));
+    }
+
+    private static void WriteUInt32(List<byte> blob, uint value)
+    {
+        blob.Add((byte)value);
+        blob.Add((byte)(value >> 8));
+        blob.Add((byte)(value >> 16));
+        blob.Add((byte)(value >> 24));
+    }
+
+    private static void WriteUInt64(List<byte> blob, ulong value)
+    {
+        WriteUInt32(blob, (uint)value);
+        WriteUInt32(blob, (uint)(value >> 32));
+    }
+
+    private static void WriteBytes(List<byte> blob, byte[] bytes)
+    {
+        if (!BitConverter.IsLittleEndian)
+            Array.Reverse(bytes);
+
+        blob.AddRange(bytes);
+    }
+
+    private static void WriteSerString(List<byte> blob, string value)
+    {
+        if (value is null)
+        {
+            blob.Add(0xFF);
+            return;
+        }
+
+        byte[] bytes = Encoding.UTF8.GetBytes(value);
+        WriteCompressedUInt32(blob, (uint)bytes.Length);
+        blob.AddRange(bytes);
+    }
+
+    private static void WriteCompressedUInt32(List<byte> blob, uint value)
+    {
+        if (value <= 0x7F)
+        {
+            blob.Add((byte)value);
+            return;
+        }
+
+        if (value <= 0x3FFF)
+        {
+            blob.Add((byte)((value >> 8) | 0x80));
+            blob.Add((byte)value);
+            return;
+        }
+
+        if (value <= 0x1FFFFFFF)
+        {
+            blob.Add((byte)((value >> 24) | 0xC0));
+            blob.Add((byte)(value >> 16));
+            blob.Add((byte)(value >> 8));
+            blob.Add((byte)value);
+            return;
+        }
+
+        throw new ArgumentOutOfRangeException(nameof(value), "Serialized custom attribute string is too long.");
+    }
+
     private sealed class PersistedCoreAssemblySelection
     {
         internal PersistedCoreAssemblySelection(
