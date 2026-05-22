@@ -227,6 +227,7 @@ namespace clojure.lang.CljCompiler.Ast
             //Type dynType = Microsoft.Scripting.Generation.Snippets.Shared.DefineDelegate("__interop__", returnType, callsiteParamTypes.ToArray());
             GenContext context = Compiler.CompilerContextVar.deref() as GenContext;
             DynInitHelper dih = (context?.DynInitHelper) ?? throw new InvalidOperationException("Don't know how to handle callsite in this case");
+            Compiler.CheckDynamicHostInteropAllowedInCurrentContext();
             Type dynType = dih.MakeDelegateType("__interop__", [.. callsiteParamTypes], returnType);
 
             DynamicExpression dyn = Expression.MakeDynamic(dynType, binder, paramExprs);
@@ -302,6 +303,8 @@ namespace clojure.lang.CljCompiler.Ast
         {
             if (Compiler.CompilerContextVar.deref() is not GenContext context || context.DynInitHelper is null)
                 throw new InvalidOperationException("Don't know how to handle callsite in this case");
+
+            Compiler.CheckDynamicHostInteropAllowedInCurrentContext();
 
             DynInitHelper.SiteInfo siteInfo = context.DynInitHelper.ComputeSiteInfo(dyn);
 

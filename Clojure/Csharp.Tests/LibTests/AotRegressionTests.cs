@@ -54,6 +54,13 @@ namespace Clojure.Tests.LibTests
 (def after-macro :loaded)
 ";
 
+        private const string DynamicHostInteropBody = @"
+(defn stringify-dynamic [x]
+  (.ToString x))
+
+(def dynamic-result (stringify-dynamic 42))
+";
+
         [OneTimeSetUp]
         public void Setup()
         {
@@ -117,6 +124,19 @@ namespace Clojure.Tests.LibTests
 
             Assert.That(File.Exists(sample.AssemblyPath), Is.True, "AOT compilation should still persist the namespace DLL.");
             Assert.That(Var.find(Symbol.intern(sample.NamespaceName, "invoked")).deref(), Is.EqualTo(42));
+        }
+
+        [Test]
+        public void ModernPersistedAotRejectsDynamicHostInteropCallSites()
+        {
+            using AotSample sample = AotSample.Create(DynamicHostInteropBody);
+
+            Compiler.CompilerException ex = Assert.Throws<Compiler.CompilerException>(() => CompileSample(sample));
+
+            Assert.That(ex.InnerException, Is.TypeOf<InvalidOperationException>());
+            Assert.That(ex.InnerException.Message, Does.Contain("Dynamic host interop is not supported"));
+            Assert.That(File.Exists(sample.AssemblyPath), Is.False,
+                "Rejected dynamic host interop forms should not leave a persisted namespace DLL.");
         }
 
         [Test]

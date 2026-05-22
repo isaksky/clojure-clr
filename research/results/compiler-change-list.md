@@ -16,10 +16,12 @@
 
 ## Required For Dynamic Call-Sites
 
+First-pass policy: dynamic host interop is rejected during modern .NET persisted AOT compilation. `MethodExpr.EmitDynamicCallPreamble` checks the current compiler context before generating DLR call-site helpers, generated delegate types, `CallSite<T>` fields, or helper setter methods. This keeps saved namespace assemblies from containing unpaired dynamic helper artifacts while the minimal AOT path is being validated.
+
 | File | Change | Dependency | Risk | Fallback |
 | --- | --- | --- | --- | --- |
-| `Context/DynInitHelper.cs` | Pair helper types, delegate types, call-site fields, and setter methods. | Generated type/member registry | `CallSite<T>` embeds backend-specific delegate type | Exclude dynamic host interop from first milestone |
-| `Ast/MethodExpr.cs` | Stop caching raw generated delegate `Type` across backends. | `DynInitHelper` pair | Invalid generic `CallSite<T>` signatures | Emit non-direct reflective fallback for unsupported cases |
+| `Context/DynInitHelper.cs` | Pair helper types, delegate types, call-site fields, and setter methods. | Generated type/member registry | `CallSite<T>` embeds backend-specific delegate type | First-pass guard excludes dynamic host interop from modern persisted AOT |
+| `Ast/MethodExpr.cs` | Stop caching raw generated delegate `Type` across backends. Current first-pass guard rejects persisted AOT dynamic call-sites before helper/delegate emission. | `DynInitHelper` pair | Invalid generic `CallSite<T>` signatures | Keep persisted AOT rejection until helper artifacts are paired |
 | Runtime binders | Ensure `GenerateCreationIL` emits only runtime-library references or backend-local helper refs. | Dynamic call-site pairing | Binder IL can indirectly reference generated delegates | Verify each binder-generated method with `ilverify` |
 
 ## Required For `deftype*` / `reify*`
