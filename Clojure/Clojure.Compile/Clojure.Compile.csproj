@@ -46,12 +46,12 @@
 	  <ItemGroup>
 			<CljCoreBin Include="$(ProjectDir)$(OutDir)clojure*.dll" />
 		</ItemGroup>
-		<Copy SourceFiles="@(CljCoreBin)" DestinationFolder="$(SolutionDir)Clojure.Main461\$(OutDir)" Condition="  '$(TargetFramework)' == 'net462' "/>
-		<Copy SourceFiles="@(CljCoreBin)" DestinationFolder="$(SolutionDir)Clojure.Main461\Content\$(OutDir)" Condition="  '$(TargetFramework)' == 'net462' "/>
-	    <Copy SourceFiles="@(CljCoreBin)" DestinationFolder="$(SolutionDir)Clojure.Main461\$(OutDir)" Condition="  '$(TargetFramework)' == 'net481' "/>
-	    <Copy SourceFiles="@(CljCoreBin)" DestinationFolder="$(SolutionDir)Clojure.Main461\Content\$(OutDir)" Condition="  '$(TargetFramework)' == 'net481' "/>	  
-	    <Copy SourceFiles="@(CljCoreBin)" DestinationFolder="$(SolutionDir)Clojure.Main\$(OutDir)" Condition="  '$(TargetFramework)' == 'net9.0' OR '$(TargetFramework)' == 'net10.0'  OR '$(TargetFramework)' == 'net11.0'"/>
-	    <Copy SourceFiles="@(CljCoreBin)" DestinationFolder="$(SolutionDir)Clojure.Main\Content\$(OutDir)" Condition="  '$(TargetFramework)' == 'net9.0' OR '$(TargetFramework)' == 'net10.0'  OR '$(TargetFramework)' == 'net11.0'"/>
+		<Copy SourceFiles="@(CljCoreBin)" DestinationFolder="$(MSBuildThisFileDirectory)..\Clojure.Main461\$(OutDir)" Condition="  '$(TargetFramework)' == 'net462' "/>
+		<Copy SourceFiles="@(CljCoreBin)" DestinationFolder="$(MSBuildThisFileDirectory)..\Clojure.Main461\Content\$(OutDir)" Condition="  '$(TargetFramework)' == 'net462' "/>
+	    <Copy SourceFiles="@(CljCoreBin)" DestinationFolder="$(MSBuildThisFileDirectory)..\Clojure.Main461\$(OutDir)" Condition="  '$(TargetFramework)' == 'net481' "/>
+	    <Copy SourceFiles="@(CljCoreBin)" DestinationFolder="$(MSBuildThisFileDirectory)..\Clojure.Main461\Content\$(OutDir)" Condition="  '$(TargetFramework)' == 'net481' "/>
+	    <Copy SourceFiles="@(CljCoreBin)" DestinationFolder="$(MSBuildThisFileDirectory)..\Clojure.Main\$(OutDir)" Condition="  '$(TargetFramework)' == 'net9.0' OR '$(TargetFramework)' == 'net10.0'  OR '$(TargetFramework)' == 'net11.0'"/>
+	    <Copy SourceFiles="@(CljCoreBin)" DestinationFolder="$(MSBuildThisFileDirectory)..\Clojure.Main\Content\$(OutDir)" Condition="  '$(TargetFramework)' == 'net9.0' OR '$(TargetFramework)' == 'net10.0'  OR '$(TargetFramework)' == 'net11.0'"/>
 	</Target>
 
 

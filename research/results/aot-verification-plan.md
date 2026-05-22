@@ -11,7 +11,8 @@ dotnet build Clojure/Clojure.Main/Clojure.Main.csproj -f net9.0 -p:TargetFramewo
 Expected:
 
 - Runtime and main projects build.
-- Compile project currently produces `Clojure.Compile.dll` but fails its post-build target on Unix because it invokes `mono` for `net9.0`; fix this before making it a CI gate.
+- Compile project runs its post-build AOT step on modern .NET by invoking `dotnet "$(TargetPath)"`.
+- Direct project builds copy the generated `clojure.*.clj.dll` files into the matching `Clojure.Main` output directory without depending on solution-only `$(SolutionDir)`.
 
 ## Minimal Namespace Compile
 
