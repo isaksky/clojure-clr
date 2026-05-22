@@ -6,7 +6,9 @@ Use the current `PersistedAssemblyBuilder` path for the first implementation mil
 
 ## Recommended Steps
 
-- [ ] Confirm and document the exact first milestone scope before implementation. Use [Goal.md](Goal.md), [current-aot-behavior.md](results/current-aot-behavior.md), [backend-strategy-decision.md](results/backend-strategy-decision.md), and [compiler-change-list.md](results/compiler-change-list.md). Decision checkpoint: confirm whether direct linking is disabled for the first pass or kept only through a backend-aware map.
+- [x] Confirm and document the exact first milestone scope before implementation. Use [Goal.md](Goal.md), [current-aot-behavior.md](results/current-aot-behavior.md), [backend-strategy-decision.md](results/backend-strategy-decision.md), and [compiler-change-list.md](results/compiler-change-list.md). Decision checkpoint: direct linking is disabled for the first pass with `CLOJURE_COMPILER_DIRECT_LINKING=false`; backend-aware direct-link records are deferred until after the minimal paired-generation path is green.
+
+  First milestone scope: make ordinary namespace AOT reliable for top-level `def`, `defn`, source-free load, top-level `let` lowered through generated function classes, and same-runtime `PersistedAssemblyBuilder` output. The persisted assembly must not reference transient eval-only generated types, and eval code must not depend on persisted generated types while compiling. Dynamic host interop/call-site helpers, `deftype*`, `reify*`, `gen-class`, `proxy`, `gen-interface`, `gen-delegate`, debug-symbol portability, cross-target reference assembly selection, and Cecil replacement remain outside this first milestone unless a verification fixture proves they are needed earlier.
 
 - [ ] Fix the modern .NET compile-driver build path so baseline AOT can run from normal builds on Unix. Relevant files: [Clojure.Compile.csproj](../Clojure/Clojure.Compile/Clojure.Compile.csproj), [Compile.cs](../Clojure/Clojure.Compile/Compile.cs), and [current-aot-behavior.md](results/current-aot-behavior.md). Decision checkpoint: choose whether `net9.0+` post-build invokes `dotnet $(TargetPath)` or the generated apphost.
 
