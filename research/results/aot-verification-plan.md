@@ -97,6 +97,14 @@ Expected:
 All Classes and Methods ... Verified.
 ```
 
+## Automated Regression Gates
+
+The `net9.0+` NUnit AOT regression fixture now covers the minimal namespace gates:
+
+- `MinimalNamespaceAotPassesReflectionInspection` loads the persisted DLL with reflection, checks the namespace initializer and generated function class, and rejects references to transient eval/internal dynamic assemblies.
+- `MinimalNamespaceAotLoadsWithoutSourceInFreshProcess` deletes the source tree, starts `Clojure.Main` in a fresh `dotnet` process from the compile output directory, and requires the compiled namespace to produce `42` and `:loaded`.
+- `MinimalNamespaceAotPassesIlVerifyWhenConfigured` runs only when `CLOJURE_AOT_ILVERIFY` points to an `ilverify` executable. Local runs may leave it unset; CI should install `dotnet-ilverify`, set this variable, and fail the test if verification fails.
+
 ## Future CI Gates
 
 - No persisted assembly reference to eval assembly.

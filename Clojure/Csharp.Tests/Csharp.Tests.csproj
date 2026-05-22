@@ -29,6 +29,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Clojure.Source\Clojure.Source.csproj" />
     <ProjectReference Include="..\Clojure\Clojure.csproj" />
+    <ProjectReference Include="..\Clojure.Main\Clojure.Main.csproj" ReferenceOutputAssembly="false" PrivateAssets="all" />
   </ItemGroup>
 
 </Project>
