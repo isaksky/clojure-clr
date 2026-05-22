@@ -195,7 +195,8 @@ namespace clojure.lang.CljCompiler.Ast
 
         internal static void MarkAsSerializable(TypeBuilder tb)
         {
-            tb.SetCustomAttribute(new CustomAttributeBuilder(Compiler.Ctor_Serializable, []));
+            GenContext context = Compiler.CompilerContextVar.deref() as GenContext;
+            tb.SetCustomAttribute(context?.CreateCustomAttribute(Compiler.Ctor_Serializable, []) ?? new CustomAttributeBuilder(Compiler.Ctor_Serializable, []));
         }
 
         #endregion
@@ -273,7 +274,7 @@ namespace clojure.lang.CljCompiler.Ast
                 if (interfaces is not null)
                 {
                     for (int i = 0; i < interfaces.count(); i++)
-                        TypeBuilder.AddInterfaceImplementation((Type)interfaces.nth(i));
+                        context.AddInterfaceImplementation(TypeBuilder, (Type)interfaces.nth(i));
                 }
 
                 ObjExpr.MarkAsSerializable(TypeBuilder);
@@ -297,7 +298,7 @@ namespace clojure.lang.CljCompiler.Ast
 
                     if (SupportsMeta)
                     {
-                        MetaField = TypeBuilder.DefineField("__meta", typeof(IPersistentMap), FieldAttributes.Public | FieldAttributes.InitOnly);
+                        MetaField = context.DefineField(TypeBuilder, "__meta", typeof(IPersistentMap), FieldAttributes.Public | FieldAttributes.InitOnly);
                         RegisterGeneratedMember(GeneratedMemberKind.Field, "__meta", MetaField);
                     }
 
@@ -355,8 +356,9 @@ namespace clojure.lang.CljCompiler.Ast
                 //Keyword k = (Keyword)_keywordCallsites.nth(i);
                 string siteName = SiteNameStatic(i);
                 string thunkName = ThunkNameStatic(i);
-                FieldBuilder fb1 = baseTB.DefineField(siteName, typeof(KeywordLookupSite), FieldAttributes.FamORAssem | FieldAttributes.Static);
-                FieldBuilder fb2 = baseTB.DefineField(thunkName, typeof(ILookupThunk), FieldAttributes.FamORAssem | FieldAttributes.Static);
+                GenContext context = CurrentGenContext();
+                FieldBuilder fb1 = context.DefineField(baseTB, siteName, typeof(KeywordLookupSite), FieldAttributes.FamORAssem | FieldAttributes.Static);
+                FieldBuilder fb2 = context.DefineField(baseTB, thunkName, typeof(ILookupThunk), FieldAttributes.FamORAssem | FieldAttributes.Static);
                 RegisterGeneratedMember(GeneratedMemberKind.Field, siteName, fb1);
                 RegisterGeneratedMember(GeneratedMemberKind.Field, thunkName, fb2);
                 KeywordLookupSiteFields.Add(fb1);
@@ -366,7 +368,7 @@ namespace clojure.lang.CljCompiler.Ast
 
         private void DefineStaticConstructor(TypeBuilder fnTB)
         {
-            ConstructorBuilder cb = fnTB.DefineConstructor(MethodAttributes.Static, CallingConventions.Standard, Type.EmptyTypes);
+            ConstructorBuilder cb = CurrentGenContext().DefineConstructor(fnTB, MethodAttributes.Static, CallingConventions.Standard, Type.EmptyTypes);
             RegisterGeneratedMember(GeneratedMemberKind.StaticConstructor, ".cctor", cb);
             EmitStaticConstructorBody(new CljILGen(cb.GetILGenerator()));
 
@@ -473,9 +475,10 @@ namespace clojure.lang.CljCompiler.Ast
 
                 Type type = lb.PrimitiveType ?? typeof(object);
 
+                GenContext context = CurrentGenContext();
                 FieldBuilder fb = markVolatile
-                    ? tb.DefineField(lb.Name, type, [typeof(IsVolatile)], Type.EmptyTypes, attributes)
-                    : tb.DefineField(lb.Name, type, attributes);
+                    ? context.DefineField(tb, lb.Name, type, [typeof(IsVolatile)], Type.EmptyTypes, attributes)
+                    : context.DefineField(tb, lb.Name, type, attributes);
 
                 RegisterGeneratedMember(GeneratedMemberKind.Field, lb.Name, fb);
                 GenInterface.SetCustomAttributes(fb, GenInterface.ExtractAttributes(RT.meta(lb.Symbol)));
@@ -495,7 +498,7 @@ namespace clojure.lang.CljCompiler.Ast
 
             for (int i = 0; i < count; i++)
             {
-                FieldBuilder fb = tb.DefineField(CachedClassName(i), typeof(Type), FieldAttributes.Public | FieldAttributes.Static);
+                FieldBuilder fb = CurrentGenContext().DefineField(tb, CachedClassName(i), typeof(Type), FieldAttributes.Public | FieldAttributes.Static);
                 RegisterGeneratedMember(GeneratedMemberKind.Field, CachedClassName(i), fb);
                 CachedTypeFields.Add(fb);
             }
@@ -512,7 +515,7 @@ namespace clojure.lang.CljCompiler.Ast
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE0060:Remove unused parameter", Justification = "Standard API")]
         private ConstructorBuilder EmitConstructorForDefType(TypeBuilder fnTB, Type baseType)
         {
-            ConstructorBuilder cb = fnTB.DefineConstructor(MethodAttributes.Public, CallingConventions.HasThis, CtorTypes());
+            ConstructorBuilder cb = CurrentGenContext().DefineConstructor(fnTB, MethodAttributes.Public, CallingConventions.HasThis, CtorTypes());
             CljILGen gen = new(cb.GetILGenerator());
 
             GenContext.EmitDebugInfo(gen, SpanMap);
@@ -539,7 +542,7 @@ namespace clojure.lang.CljCompiler.Ast
 
         private ConstructorBuilder EmitConstructorForNonDefType(TypeBuilder fnTB, Type baseType)
         {
-            ConstructorBuilder cb = fnTB.DefineConstructor(MethodAttributes.Public, CallingConventions.HasThis, CtorTypes());
+            ConstructorBuilder cb = CurrentGenContext().DefineConstructor(fnTB, MethodAttributes.Public, CallingConventions.HasThis, CtorTypes());
             CljILGen gen = new(cb.GetILGenerator());
 
             GenContext.EmitDebugInfo(gen, SpanMap);
@@ -596,7 +599,7 @@ namespace clojure.lang.CljCompiler.Ast
             for (int i = 0; i < altCtorTypes.Length; i++)
                 altCtorTypes[i] = ctorTypes[i];
 
-            ConstructorBuilder cb = fnTB.DefineConstructor(MethodAttributes.Public, CallingConventions.HasThis, altCtorTypes);
+            ConstructorBuilder cb = CurrentGenContext().DefineConstructor(fnTB, MethodAttributes.Public, CallingConventions.HasThis, altCtorTypes);
             RegisterGeneratedMember(GeneratedMemberKind.Constructor, ".ctor", cb);
             CljILGen gen = new(cb.GetILGenerator());
 
@@ -625,7 +628,7 @@ namespace clojure.lang.CljCompiler.Ast
             for (int i = 0; i < altCtorTypes.Length; i++)
                 altCtorTypes[i] = ctorTypes[i];
 
-            ConstructorBuilder cb = fnTB.DefineConstructor(MethodAttributes.Public, CallingConventions.HasThis, altCtorTypes);
+            ConstructorBuilder cb = CurrentGenContext().DefineConstructor(fnTB, MethodAttributes.Public, CallingConventions.HasThis, altCtorTypes);
             RegisterGeneratedMember(GeneratedMemberKind.Constructor, ".ctor", cb);
             CljILGen gen = new(cb.GetILGenerator());
 
@@ -651,7 +654,7 @@ namespace clojure.lang.CljCompiler.Ast
             for (int i = 1; i < ctorTypes.Length; i++)
                 noMetaCtorTypes[i - 1] = ctorTypes[i];
 
-            ConstructorBuilder cb = fnTB.DefineConstructor(MethodAttributes.Public, CallingConventions.HasThis, noMetaCtorTypes);
+            ConstructorBuilder cb = CurrentGenContext().DefineConstructor(fnTB, MethodAttributes.Public, CallingConventions.HasThis, noMetaCtorTypes);
             RegisterGeneratedMember(GeneratedMemberKind.Constructor, ".ctor", cb);
             CljILGen gen = new(cb.GetILGenerator());
 
@@ -668,7 +671,8 @@ namespace clojure.lang.CljCompiler.Ast
         private void EmitMetaFunctions(TypeBuilder fnTB)
         {
             // IPersistentMap meta()
-            MethodBuilder metaMB = fnTB.DefineMethod("meta", MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.ReuseSlot, typeof(IPersistentMap), Type.EmptyTypes);
+            GenContext context = CurrentGenContext();
+            MethodBuilder metaMB = context.DefineMethod(fnTB, "meta", MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.ReuseSlot, typeof(IPersistentMap), Type.EmptyTypes);
             RegisterGeneratedMember(GeneratedMemberKind.Method, "meta", metaMB);
             CljILGen gen = new(metaMB.GetILGenerator());
             if (SupportsMeta)
@@ -681,7 +685,7 @@ namespace clojure.lang.CljCompiler.Ast
             gen.Emit(OpCodes.Ret);
 
             // IObj withMeta(IPersistentMap)
-            MethodBuilder withMB = fnTB.DefineMethod("withMeta", MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.ReuseSlot, typeof(IObj), [typeof(IPersistentMap)]);
+            MethodBuilder withMB = context.DefineMethod(fnTB, "withMeta", MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.ReuseSlot, typeof(IObj), [typeof(IPersistentMap)]);
             RegisterGeneratedMember(GeneratedMemberKind.Method, "withMeta", withMB);
             gen = new CljILGen(withMB.GetILGenerator());
 
@@ -716,7 +720,7 @@ namespace clojure.lang.CljCompiler.Ast
             {
                 Var.pushThreadBindings(RT.map(RT.PrintDupVar, true));
 
-                MethodBuilder mb = fnTB.DefineMethod(StaticCtorHelperName + "_constants", MethodAttributes.Private | MethodAttributes.Static);
+                MethodBuilder mb = CurrentGenContext().DefineMethod(fnTB, StaticCtorHelperName + "_constants", MethodAttributes.Private | MethodAttributes.Static, typeof(void), Type.EmptyTypes);
                 RegisterGeneratedMember(GeneratedMemberKind.Method, StaticCtorHelperName + "_constants", mb);
                 CljILGen ilg = new(mb.GetILGenerator());
 
@@ -975,7 +979,7 @@ namespace clojure.lang.CljCompiler.Ast
             {
                 string fieldName = ConstantName(id);
                 Type fieldType = ConstantType(id);
-                FieldBuilder fb = TypeBuilder.DefineField(fieldName, fieldType, FieldAttributes.FamORAssem | FieldAttributes.Static);
+                FieldBuilder fb = CurrentGenContext().DefineField(TypeBuilder, fieldName, fieldType, FieldAttributes.FamORAssem | FieldAttributes.Static);
                 RegisterGeneratedMember(GeneratedMemberKind.Field, fieldName, fb);
                 ConstantFields[id] = fbr = new FieldBuilderRecord(fb);
             }
@@ -1180,6 +1184,12 @@ namespace clojure.lang.CljCompiler.Ast
                 context.RegisterGeneratedMember(GeneratedType, kind, logicalName, member);
         }
 
+        private static GenContext CurrentGenContext()
+        {
+            return Compiler.CompilerContextVar.deref() as GenContext
+                ?? throw new InvalidOperationException("Generated IL emission requires an active compiler generation context.");
+        }
+
         internal MethodBuilder DefineGeneratedMethod(
             TypeBuilder tb,
             string logicalName,
@@ -1187,7 +1197,7 @@ namespace clojure.lang.CljCompiler.Ast
             Type returnType,
             Type[] parameterTypes)
         {
-            MethodBuilder mb = tb.DefineMethod(logicalName, attributes, returnType, parameterTypes);
+            MethodBuilder mb = CurrentGenContext().DefineMethod(tb, logicalName, attributes, returnType, parameterTypes);
             RegisterGeneratedMember(GeneratedMemberKind.Method, logicalName, mb);
             return mb;
         }
@@ -1196,7 +1206,8 @@ namespace clojure.lang.CljCompiler.Ast
         {
 
             // TODO: Convert to a Switch instruction
-            MethodBuilder mb = tb.DefineMethod(
+            MethodBuilder mb = CurrentGenContext().DefineMethod(
+                tb,
                 "HasArity",
                 MethodAttributes.ReuseSlot | MethodAttributes.Public | MethodAttributes.Virtual,
                 typeof(bool),

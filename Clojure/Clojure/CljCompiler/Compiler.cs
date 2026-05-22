@@ -1836,7 +1836,7 @@ namespace clojure.lang
             objx.TypeBuilder = initTB;
 
             // static load method
-            MethodBuilder initMB = initTB.DefineMethod("Initialize", MethodAttributes.Public | MethodAttributes.Static, typeof(void), Type.EmptyTypes);
+            MethodBuilder initMB = context.DefineMethod(initTB, "Initialize", MethodAttributes.Public | MethodAttributes.Static, typeof(void), Type.EmptyTypes);
             context.RegisterGeneratedMember(objx.GeneratedType, GeneratedMemberKind.Method, "Initialize", initMB);
             CljILGen ilg = new(initMB.GetILGenerator());
 
@@ -1888,9 +1888,9 @@ namespace clojure.lang
                 MethodBuilder constInitsMB = objx.DefineConstantFieldInitMethod(initTB);
 
                 // Static init for constants, keywords, vars
-                ConstructorBuilder cb = initTB.DefineConstructor(MethodAttributes.Static, CallingConventions.Standard, Type.EmptyTypes);
+                ConstructorBuilder cb = context.DefineConstructor(initTB, MethodAttributes.Static, CallingConventions.Standard, Type.EmptyTypes);
                 objx.RegisterGeneratedMember(GeneratedMemberKind.StaticConstructor, ".cctor", cb);
-                ILGenerator cbGen = cb.GetILGenerator();
+                CljILGen cbGen = new(cb.GetILGenerator());
 
                 cbGen.BeginExceptionBlock();
 
@@ -1903,10 +1903,17 @@ namespace clojure.lang
                 cbGen.EndExceptionBlock();
                 cbGen.Emit(OpCodes.Ret);
 
-                var descAttrBuilder =
-                 new CustomAttributeBuilder(typeof(DescriptionAttribute).GetConstructor([typeof(String)]),
-                                           [String.Format("{{:clojure-namespace {0}}}", CurrentNamespace)]);
-                initTB.SetCustomAttribute(descAttrBuilder);
+#if NET9_0_OR_GREATER
+                if (!context.CanPersist || context.UsesSameRuntimePersistedCoreAssembly)
+#endif
+                {
+                    // CustomAttributeBuilder requires runtime constructors; omit this
+                    // nonessential attribute for explicit ref-assembly targets.
+                    var descAttrBuilder =
+                     context.CreateCustomAttribute(typeof(DescriptionAttribute).GetConstructor([typeof(String)]),
+                                               [String.Format("{{:clojure-namespace {0}}}", CurrentNamespace)]);
+                    initTB.SetCustomAttribute(descAttrBuilder);
+                }
 
                 Type initType = initTB.CreateType();
                 context.RegisterGeneratedTypeCreated(objx.GeneratedType, initType);

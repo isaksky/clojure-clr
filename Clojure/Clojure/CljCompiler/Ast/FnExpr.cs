@@ -321,7 +321,10 @@ namespace clojure.lang.CljCompiler.Ast
 
         static MethodBuilder EmitGetRequiredArityMethod(TypeBuilder tb, int requiredArity)
         {
-            MethodBuilder mb = tb.DefineMethod(
+            GenContext context = Compiler.CompilerContextVar.deref() as GenContext
+                ?? throw new InvalidOperationException("Generated IL emission requires an active compiler generation context.");
+            MethodBuilder mb = context.DefineMethod(
+                tb,
                 "getRequiredArity",
                 MethodAttributes.ReuseSlot | MethodAttributes.Public | MethodAttributes.Virtual,
                 typeof(int),

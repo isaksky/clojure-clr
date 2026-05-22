@@ -295,6 +295,13 @@ namespace Clojure.Tests.LibTests
             SaveExplicitContext(context);
 
             Assembly assembly = Assembly.LoadFrom(sample.AssemblyPath);
+            string[] referenceNames = assembly.GetReferencedAssemblies().Select(reference => reference.Name).ToArray();
+            Assert.That(referenceNames, Does.Contain("System.Runtime"),
+                "Explicit target selection should bind core framework references through the selected reference assemblies.");
+            Assert.That(referenceNames, Does.Not.Contain("System.Private.CoreLib"),
+                "Explicit target selection must not leak compiler runtime implementation assemblies into saved metadata."
+                + Environment.NewLine
+                + DumpMetadataReferences(sample.AssemblyPath, "System.Private.CoreLib"));
             Assert.That(assembly.GetReferencedAssemblies().Any(IsEvalOrInternalDynamicReference), Is.False,
                 "Explicit target selection should still avoid transient eval/internal dynamic assembly references.");
         }
@@ -1001,6 +1008,49 @@ namespace Clojure.Tests.LibTests
                 || name.StartsWith("eval", StringComparison.OrdinalIgnoreCase)
                 || name.Contains("InternalDynamic", StringComparison.OrdinalIgnoreCase)
                 || name.Contains("DynamicMethods", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string DumpMetadataReferences(string assemblyPath, string assemblyName)
+        {
+            using FileStream stream = File.OpenRead(assemblyPath);
+            using PEReader peReader = new(stream);
+            MetadataReader reader = peReader.GetMetadataReader();
+
+            var matchingAssemblyReferences = reader.AssemblyReferences
+                .Where(handle => reader.GetString(reader.GetAssemblyReference(handle).Name) == assemblyName)
+                .ToArray();
+
+            if (matchingAssemblyReferences.Length == 0)
+                return assemblyName + " metadata references: <none>";
+
+            string[] typeReferences = reader.TypeReferences
+                .Select(handle => reader.GetTypeReference(handle))
+                .Where(typeReference =>
+                    typeReference.ResolutionScope.Kind == HandleKind.AssemblyReference
+                    && matchingAssemblyReferences.Contains((AssemblyReferenceHandle)typeReference.ResolutionScope))
+                .Select(typeReference => reader.GetString(typeReference.Namespace) + "." + reader.GetString(typeReference.Name))
+                .Distinct()
+                .OrderBy(name => name)
+                .ToArray();
+
+            string[] memberReferences = reader.MemberReferences
+                .Select(handle => reader.GetMemberReference(handle))
+                .Where(memberReference =>
+                    memberReference.Parent.Kind == HandleKind.TypeReference
+                    && reader.GetTypeReference((TypeReferenceHandle)memberReference.Parent).ResolutionScope.Kind == HandleKind.AssemblyReference
+                    && matchingAssemblyReferences.Contains((AssemblyReferenceHandle)reader.GetTypeReference((TypeReferenceHandle)memberReference.Parent).ResolutionScope))
+                .Select(memberReference => reader.GetString(memberReference.Name))
+                .Distinct()
+                .OrderBy(name => name)
+                .ToArray();
+
+            return assemblyName
+                + " type refs: "
+                + (typeReferences.Length == 0 ? "<none>" : string.Join(", ", typeReferences))
+                + Environment.NewLine
+                + assemblyName
+                + " member refs: "
+                + (memberReferences.Length == 0 ? "<none>" : string.Join(", ", memberReferences));
         }
 
         private static string GetInitTypeName(string namespaceName)

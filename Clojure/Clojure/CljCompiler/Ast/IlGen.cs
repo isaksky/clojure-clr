@@ -12,6 +12,7 @@ using System;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Runtime.CompilerServices;
+using clojure.lang.CljCompiler.Context;
 using Microsoft.Scripting.Generation;
 using System.Collections.Generic;
 
@@ -31,6 +32,90 @@ namespace clojure.lang.CljCompiler.Ast
             : base(baseIlg)
         {
             _ilGenerator = baseIlg;
+        }
+
+        public new LocalBuilder DeclareLocal(Type localType)
+        {
+            return base.DeclareLocal(ResolveEmittedType(localType));
+        }
+
+        public new void Emit(OpCode opcode, Type type)
+        {
+            base.Emit(opcode, ResolveEmittedType(type));
+        }
+
+        public new void Emit(OpCode opcode, MethodInfo method)
+        {
+            base.Emit(opcode, ResolveEmittedMethod(method));
+        }
+
+        public new void Emit(OpCode opcode, ConstructorInfo constructor)
+        {
+            base.Emit(opcode, ResolveEmittedConstructor(constructor));
+        }
+
+        public new void Emit(OpCode opcode, FieldInfo field)
+        {
+            base.Emit(opcode, ResolveEmittedField(field));
+        }
+
+        public new void EmitCall(MethodInfo method)
+        {
+            base.EmitCall(ResolveEmittedMethod(method));
+        }
+
+        public new void EmitNew(ConstructorInfo constructor)
+        {
+            base.EmitNew(ResolveEmittedConstructor(constructor));
+        }
+
+        public new void EmitNew(Type type, Type[] parameterTypes)
+        {
+            GenContext context = CurrentContext();
+            if (context is not null)
+                base.EmitNew(context.ResolveEmittedType(type), context.ResolveEmittedTypes(parameterTypes));
+            else
+                base.EmitNew(type, parameterTypes);
+        }
+
+        public new void EmitType(Type type)
+        {
+            base.EmitType(ResolveEmittedType(type));
+        }
+
+        public new void EmitFieldGet(FieldInfo field)
+        {
+            base.EmitFieldGet(ResolveEmittedField(field));
+        }
+
+        public new void EmitFieldSet(FieldInfo field)
+        {
+            base.EmitFieldSet(ResolveEmittedField(field));
+        }
+
+        private static Type ResolveEmittedType(Type type)
+        {
+            return CurrentContext()?.ResolveEmittedType(type) ?? type;
+        }
+
+        private static MethodInfo ResolveEmittedMethod(MethodInfo method)
+        {
+            return CurrentContext()?.ResolveEmittedMethod(method) ?? method;
+        }
+
+        private static ConstructorInfo ResolveEmittedConstructor(ConstructorInfo constructor)
+        {
+            return CurrentContext()?.ResolveEmittedConstructor(constructor) ?? constructor;
+        }
+
+        private static FieldInfo ResolveEmittedField(FieldInfo field)
+        {
+            return CurrentContext()?.ResolveEmittedField(field) ?? field;
+        }
+
+        private static GenContext CurrentContext()
+        {
+            return Compiler.CompilerContextVar.deref() as GenContext;
         }
 
         private static bool IsVolatile(FieldInfo fi)

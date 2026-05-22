@@ -425,6 +425,142 @@ namespace clojure.lang.CljCompiler.Context
             return _generatedArtifacts.ResolveGeneratedTypeForBackend(type, ArtifactBackend);
         }
 
+#if NET9_0_OR_GREATER
+        public Type ResolveEmittedType(Type type)
+        {
+            type = ResolveGeneratedTypeForCurrentBackend(type);
+            return CanPersist ? _assyGen.ResolvePersistedTypeReference(type) : type;
+        }
+
+        public Type[] ResolveEmittedTypes(Type[] types)
+        {
+            if (types is null || !CanPersist)
+                return types;
+
+            Type[] resolved = null;
+            for (int i = 0; i < types.Length; i++)
+            {
+                Type type = ResolveEmittedType(types[i]);
+                if (!ReferenceEquals(type, types[i]))
+                {
+                    resolved ??= (Type[])types.Clone();
+                    resolved[i] = type;
+                }
+            }
+
+            return resolved ?? types;
+        }
+
+        public MethodInfo ResolveEmittedMethod(MethodInfo method)
+        {
+            return CanPersist ? _assyGen.ResolvePersistedMethodReference(method) : method;
+        }
+
+        public ConstructorInfo ResolveEmittedConstructor(ConstructorInfo constructor)
+        {
+            return CanPersist ? _assyGen.ResolvePersistedConstructorReference(constructor) : constructor;
+        }
+
+        public FieldInfo ResolveEmittedField(FieldInfo field)
+        {
+            return CanPersist ? _assyGen.ResolvePersistedFieldReference(field) : field;
+        }
+#else
+        public Type ResolveEmittedType(Type type)
+        {
+            return ResolveGeneratedTypeForCurrentBackend(type);
+        }
+
+        public Type[] ResolveEmittedTypes(Type[] types)
+        {
+            return types;
+        }
+
+        public MethodInfo ResolveEmittedMethod(MethodInfo method)
+        {
+            return method;
+        }
+
+        public ConstructorInfo ResolveEmittedConstructor(ConstructorInfo constructor)
+        {
+            return constructor;
+        }
+
+        public FieldInfo ResolveEmittedField(FieldInfo field)
+        {
+            return field;
+        }
+#endif
+
+        public TypeBuilder AddInterfaceImplementation(TypeBuilder typeBuilder, Type interfaceType)
+        {
+            typeBuilder.AddInterfaceImplementation(ResolveEmittedType(interfaceType));
+            return typeBuilder;
+        }
+
+        public FieldBuilder DefineField(
+            TypeBuilder typeBuilder,
+            string name,
+            Type fieldType,
+            FieldAttributes attributes)
+        {
+            return typeBuilder.DefineField(name, ResolveEmittedType(fieldType), attributes);
+        }
+
+        public FieldBuilder DefineField(
+            TypeBuilder typeBuilder,
+            string name,
+            Type fieldType,
+            Type[] requiredCustomModifiers,
+            Type[] optionalCustomModifiers,
+            FieldAttributes attributes)
+        {
+            return typeBuilder.DefineField(
+                name,
+                ResolveEmittedType(fieldType),
+                ResolveEmittedTypes(requiredCustomModifiers),
+                ResolveEmittedTypes(optionalCustomModifiers),
+                attributes);
+        }
+
+        public ConstructorBuilder DefineConstructor(
+            TypeBuilder typeBuilder,
+            MethodAttributes attributes,
+            CallingConventions callingConvention,
+            Type[] parameterTypes)
+        {
+            return typeBuilder.DefineConstructor(attributes, callingConvention, ResolveEmittedTypes(parameterTypes));
+        }
+
+        public MethodBuilder DefineMethod(
+            TypeBuilder typeBuilder,
+            string name,
+            MethodAttributes attributes,
+            Type returnType,
+            Type[] parameterTypes)
+        {
+            return typeBuilder.DefineMethod(
+                name,
+                attributes,
+                ResolveEmittedType(returnType),
+                ResolveEmittedTypes(parameterTypes));
+        }
+
+        public MethodBuilder DefineMethod(
+            TypeBuilder typeBuilder,
+            string name,
+            MethodAttributes attributes)
+        {
+            return typeBuilder.DefineMethod(name, attributes);
+        }
+
+        public CustomAttributeBuilder CreateCustomAttribute(ConstructorInfo constructor, object[] constructorArgs)
+        {
+            // CustomAttributeBuilder validates constructor argument types against runtime
+            // reflection objects, so MetadataLoadContext constructors are not accepted here.
+            return new CustomAttributeBuilder(constructor, constructorArgs);
+        }
+
         private string CurrentGeneratedSourcePath()
         {
             return Compiler.SourcePathVar.deref() as string ?? _sourceName ?? Path ?? string.Empty;

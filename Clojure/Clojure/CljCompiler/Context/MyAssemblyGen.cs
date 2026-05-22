@@ -62,6 +62,9 @@ public sealed class MyAssemblyGen
     private readonly MetadataLoadContext _persistedMetadataLoadContext;
     private readonly string _persistedTargetFramework;
     private readonly string _persistedReferenceAssemblyDirectory;
+    private readonly Dictionary<Type, Type> _persistedTypeReferences = new();
+    private readonly Dictionary<MemberInfo, MemberInfo> _persistedMemberReferences = new();
+    private readonly Dictionary<string, Assembly> _persistedReferenceAssemblies = new(StringComparer.OrdinalIgnoreCase);
     public void SetDocWriter(ISymbolDocumentWriter dw) => _docWriter = dw;
     internal Assembly PersistedCoreAssembly => _persistedCoreAssembly;
     internal string PersistedTargetFramework => _persistedTargetFramework;
@@ -147,9 +150,11 @@ public sealed class MyAssemblyGen
         }
 
 
+        var attributes = new List<CustomAttributeBuilder>();
+
+#if NETFRAMEWORK
         // mark the assembly transparent so that it works in partial trust:
-        var attributes = new List<CustomAttributeBuilder> {
-                new CustomAttributeBuilder(typeof(SecurityTransparentAttribute).GetConstructor(ReflectionUtils.EmptyTypes), ArrayUtils.EmptyObjects) };
+        attributes.Add(new CustomAttributeBuilder(typeof(SecurityTransparentAttribute).GetConstructor(ReflectionUtils.EmptyTypes), ArrayUtils.EmptyObjects));
 
         if (attrs != null)
         {
@@ -183,6 +188,7 @@ public sealed class MyAssemblyGen
                 }
             }
         }
+#endif
 
 #if NETFRAMEWORK
         _myAssembly = AppDomain.CurrentDomain.DefineDynamicAssembly(name, AssemblyBuilderAccess.RunAndSave, outDir, false, attributes);
@@ -211,6 +217,14 @@ public sealed class MyAssemblyGen
 
     internal void SetDebuggableAttributes()
     {
+#if NET9_0_OR_GREATER
+        if (_persistedMetadataLoadContext is not null)
+        {
+            // CustomAttributeBuilder does not accept MetadataLoadContext constructors.
+            return;
+        }
+#endif
+
         DebuggableAttribute.DebuggingModes attrs =
             DebuggableAttribute.DebuggingModes.Default |
             DebuggableAttribute.DebuggingModes.IgnoreSymbolStoreSequencePoints |
@@ -271,7 +285,7 @@ public sealed class MyAssemblyGen
                 "Modern persisted AOT reference assembly selection requires System.Runtime.dll in "
                 + resolvedReferenceAssemblyDirectory);
 
-        string[] referenceAssemblyPaths = Directory.GetFiles(resolvedReferenceAssemblyDirectory, "*.dll");
+        string[] referenceAssemblyPaths = PersistedResolverAssemblyPaths(resolvedReferenceAssemblyDirectory);
         PathAssemblyResolver resolver = new(referenceAssemblyPaths);
         MetadataLoadContext metadataLoadContext = new(resolver, "System.Runtime");
         try
@@ -421,6 +435,46 @@ public sealed class MyAssemblyGen
         }
     }
 
+    private static string[] PersistedResolverAssemblyPaths(string referenceAssemblyDirectory)
+    {
+        List<string> paths = new(Directory.GetFiles(referenceAssemblyDirectory, "*.dll"));
+        HashSet<string> seenPaths = new(paths, StringComparer.OrdinalIgnoreCase);
+
+        foreach (Assembly assembly in AppDomain.CurrentDomain.GetAssemblies())
+        {
+            if (!ShouldAddLoadedAssemblyToPersistedResolver(assembly, referenceAssemblyDirectory))
+                continue;
+
+            string location = Path.GetFullPath(assembly.Location);
+            if (seenPaths.Add(location))
+                paths.Add(location);
+        }
+
+        return paths.ToArray();
+    }
+
+    private static bool ShouldAddLoadedAssemblyToPersistedResolver(Assembly assembly, string referenceAssemblyDirectory)
+    {
+        if (assembly is null || assembly.IsDynamic || string.IsNullOrWhiteSpace(assembly.Location))
+            return false;
+
+        string assemblyName = assembly.GetName().Name;
+        if (assemblyName == typeof(object).Assembly.GetName().Name)
+            return false;
+
+        if (File.Exists(Path.Combine(referenceAssemblyDirectory, assemblyName + ".dll")))
+            return false;
+
+        string runtimeDirectory = RuntimeEnvironment.GetRuntimeDirectory();
+        if (!string.IsNullOrWhiteSpace(runtimeDirectory)
+            && Path.GetFullPath(assembly.Location).StartsWith(Path.GetFullPath(runtimeDirectory), StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
     private static string TryReferenceAssemblyDirectory(string directory)
     {
         if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
@@ -491,6 +545,312 @@ public sealed class MyAssemblyGen
                 "Modern persisted AOT target framework must include a major and minor version, e.g. net9.0.");
 
         return parts[0] + "." + parts[1];
+    }
+
+    internal Type ResolvePersistedTypeReference(Type type)
+    {
+        if (!_isPersistable || _persistedMetadataLoadContext is null || type is null)
+            return type;
+
+        lock (_persistedTypeReferences)
+        {
+            return ResolvePersistedTypeReferenceCore(type);
+        }
+    }
+
+    internal MethodInfo ResolvePersistedMethodReference(MethodInfo method)
+    {
+        if (!_isPersistable || _persistedMetadataLoadContext is null || method is null || method is MethodBuilder)
+            return method;
+
+        return (MethodInfo)ResolvePersistedMemberReference(method, ResolvePersistedMethodReferenceUncached);
+    }
+
+    internal ConstructorInfo ResolvePersistedConstructorReference(ConstructorInfo constructor)
+    {
+        if (!_isPersistable || _persistedMetadataLoadContext is null || constructor is null || constructor is ConstructorBuilder)
+            return constructor;
+
+        return (ConstructorInfo)ResolvePersistedMemberReference(constructor, ResolvePersistedConstructorReferenceUncached);
+    }
+
+    internal FieldInfo ResolvePersistedFieldReference(FieldInfo field)
+    {
+        if (!_isPersistable || _persistedMetadataLoadContext is null || field is null || field is FieldBuilder)
+            return field;
+
+        return (FieldInfo)ResolvePersistedMemberReference(field, ResolvePersistedFieldReferenceUncached);
+    }
+
+    private MemberInfo ResolvePersistedMemberReference(MemberInfo member, Func<MemberInfo, MemberInfo> resolveUncached)
+    {
+        lock (_persistedMemberReferences)
+        {
+            if (_persistedMemberReferences.TryGetValue(member, out MemberInfo mapped))
+                return mapped;
+
+            _persistedMemberReferences[member] = member;
+            mapped = resolveUncached(member) ?? member;
+            _persistedMemberReferences[member] = mapped;
+            return mapped;
+        }
+    }
+
+    private Type ResolvePersistedTypeReferenceCore(Type type)
+    {
+        if (_persistedTypeReferences.TryGetValue(type, out Type mapped))
+            return mapped;
+
+        _persistedTypeReferences[type] = type;
+        mapped = ResolvePersistedTypeReferenceUncached(type) ?? type;
+        _persistedTypeReferences[type] = mapped;
+        return mapped;
+    }
+
+    private Type ResolvePersistedTypeReferenceUncached(Type type)
+    {
+        if (type is null || type is TypeBuilder || type.Assembly is PersistedAssemblyBuilder || type.IsGenericParameter)
+            return type;
+
+        if (type.HasElementType)
+        {
+            Type elementType = ResolvePersistedTypeReferenceCore(type.GetElementType());
+            if (ReferenceEquals(elementType, type.GetElementType()))
+                return type;
+
+            if (type.IsByRef)
+                return elementType.MakeByRefType();
+            if (type.IsPointer)
+                return elementType.MakePointerType();
+            if (type.IsArray)
+                return type.IsSZArray ? elementType.MakeArrayType() : elementType.MakeArrayType(type.GetArrayRank());
+
+            return type;
+        }
+
+        if (type.IsGenericType && !type.IsGenericTypeDefinition)
+        {
+            Type genericDefinition = ResolvePersistedTypeReferenceCore(type.GetGenericTypeDefinition());
+            Type[] genericArguments = ResolvePersistedTypeReferences(type.GetGenericArguments());
+
+            if (ReferenceEquals(genericDefinition, type.GetGenericTypeDefinition())
+                && TypesReferenceEqual(genericArguments, type.GetGenericArguments()))
+                return type;
+
+            return genericDefinition.MakeGenericType(genericArguments);
+        }
+
+        Assembly assembly = ResolvePersistedAssemblyReference(type.Assembly);
+        if (assembly is null)
+            return type;
+
+        return assembly.GetType(type.FullName, throwOnError: false, ignoreCase: false) ?? type;
+    }
+
+    private Type[] ResolvePersistedTypeReferences(Type[] types)
+    {
+        if (types is null)
+            return null;
+
+        Type[] resolved = null;
+        for (int i = 0; i < types.Length; i++)
+        {
+            Type type = ResolvePersistedTypeReferenceCore(types[i]);
+            if (!ReferenceEquals(type, types[i]))
+            {
+                resolved ??= (Type[])types.Clone();
+                resolved[i] = type;
+            }
+        }
+
+        return resolved ?? types;
+    }
+
+    private Assembly ResolvePersistedAssemblyReference(Assembly assembly)
+    {
+        if (assembly is null || assembly is AssemblyBuilder || assembly.IsDynamic)
+            return null;
+
+        if (ReferenceEquals(assembly, _persistedCoreAssembly))
+            return assembly;
+
+        string assemblyName = assembly.GetName().Name;
+        if (assemblyName == typeof(object).Assembly.GetName().Name)
+            return _persistedCoreAssembly;
+
+        if (string.IsNullOrWhiteSpace(_persistedReferenceAssemblyDirectory))
+            return null;
+
+        if (_persistedReferenceAssemblies.TryGetValue(assemblyName, out Assembly mappedAssembly))
+            return mappedAssembly;
+
+        string referenceAssemblyPath = Path.Combine(_persistedReferenceAssemblyDirectory, assemblyName + ".dll");
+        if (!File.Exists(referenceAssemblyPath))
+        {
+            if (!ShouldAddLoadedAssemblyToPersistedResolver(assembly, _persistedReferenceAssemblyDirectory))
+                return null;
+
+            referenceAssemblyPath = assembly.Location;
+        }
+
+        mappedAssembly = _persistedMetadataLoadContext.LoadFromAssemblyPath(referenceAssemblyPath);
+        _persistedReferenceAssemblies[assemblyName] = mappedAssembly;
+        return mappedAssembly;
+    }
+
+    private MemberInfo ResolvePersistedMethodReferenceUncached(MemberInfo member)
+    {
+        MethodInfo method = (MethodInfo)member;
+        Type declaringType = ResolvePersistedTypeReferenceCore(method.DeclaringType);
+        if (ReferenceEquals(declaringType, method.DeclaringType))
+            return method;
+
+        MethodInfo methodDefinition = method.IsGenericMethod && !method.IsGenericMethodDefinition
+            ? method.GetGenericMethodDefinition()
+            : method;
+
+        MethodInfo mappedMethod = declaringType
+            .GetMethods(AllMemberBindings)
+            .FirstOrDefault(candidate => MethodMatches(methodDefinition, candidate));
+
+        if (mappedMethod is null)
+            return method;
+
+        if (method.IsGenericMethod && !method.IsGenericMethodDefinition)
+            mappedMethod = mappedMethod.MakeGenericMethod(ResolvePersistedTypeReferences(method.GetGenericArguments()));
+
+        return mappedMethod;
+    }
+
+    private MemberInfo ResolvePersistedConstructorReferenceUncached(MemberInfo member)
+    {
+        ConstructorInfo constructor = (ConstructorInfo)member;
+        Type declaringType = ResolvePersistedTypeReferenceCore(constructor.DeclaringType);
+        if (ReferenceEquals(declaringType, constructor.DeclaringType))
+            return constructor;
+
+        return declaringType
+            .GetConstructors(AllMemberBindings)
+            .FirstOrDefault(candidate => ParametersMatch(constructor.GetParameters(), candidate.GetParameters()))
+            ?? constructor;
+    }
+
+    private MemberInfo ResolvePersistedFieldReferenceUncached(MemberInfo member)
+    {
+        FieldInfo field = (FieldInfo)member;
+        Type declaringType = ResolvePersistedTypeReferenceCore(field.DeclaringType);
+        if (ReferenceEquals(declaringType, field.DeclaringType))
+            return field;
+
+        return declaringType
+            .GetFields(AllMemberBindings)
+            .FirstOrDefault(candidate =>
+                candidate.Name == field.Name
+                && candidate.IsStatic == field.IsStatic
+                && TypeReferencesMatch(ResolvePersistedTypeReferenceCore(field.FieldType), candidate.FieldType))
+            ?? field;
+    }
+
+    private static readonly BindingFlags AllMemberBindings =
+        BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;
+
+    private bool MethodMatches(MethodInfo source, MethodInfo candidate)
+    {
+        if (candidate.Name != source.Name
+            || candidate.IsStatic != source.IsStatic
+            || candidate.IsGenericMethodDefinition != source.IsGenericMethodDefinition
+            || candidate.GetGenericArguments().Length != source.GetGenericArguments().Length)
+        {
+            return false;
+        }
+
+        if (!TypeReferencesMatch(ResolvePersistedTypeReferenceCore(source.ReturnType), candidate.ReturnType))
+            return false;
+
+        return ParametersMatch(source.GetParameters(), candidate.GetParameters());
+    }
+
+    private bool ParametersMatch(ParameterInfo[] source, ParameterInfo[] candidate)
+    {
+        if (source.Length != candidate.Length)
+            return false;
+
+        for (int i = 0; i < source.Length; i++)
+        {
+            Type sourceType = ResolvePersistedTypeReferenceCore(source[i].ParameterType);
+            if (!TypeReferencesMatch(sourceType, candidate[i].ParameterType))
+                return false;
+        }
+
+        return true;
+    }
+
+    private static bool TypeReferencesMatch(Type left, Type right)
+    {
+        if (ReferenceEquals(left, right) || left == right)
+            return true;
+
+        if (left is null || right is null)
+            return false;
+
+        if (left.IsGenericParameter || right.IsGenericParameter)
+            return left.IsGenericParameter
+                && right.IsGenericParameter
+                && left.GenericParameterPosition == right.GenericParameterPosition;
+
+        if (left.HasElementType || right.HasElementType)
+        {
+            return left.HasElementType
+                && right.HasElementType
+                && left.IsArray == right.IsArray
+                && left.IsByRef == right.IsByRef
+                && left.IsPointer == right.IsPointer
+                && (!left.IsArray || left.GetArrayRank() == right.GetArrayRank())
+                && TypeReferencesMatch(left.GetElementType(), right.GetElementType());
+        }
+
+        if (left.IsGenericType || right.IsGenericType)
+        {
+            if (!left.IsGenericType || !right.IsGenericType)
+                return false;
+
+            Type leftDefinition = left.IsGenericTypeDefinition ? left : left.GetGenericTypeDefinition();
+            Type rightDefinition = right.IsGenericTypeDefinition ? right : right.GetGenericTypeDefinition();
+            if (!TypeReferencesMatch(leftDefinition, rightDefinition))
+                return false;
+
+            Type[] leftArguments = left.GetGenericArguments();
+            Type[] rightArguments = right.GetGenericArguments();
+            if (leftArguments.Length != rightArguments.Length)
+                return false;
+
+            for (int i = 0; i < leftArguments.Length; i++)
+            {
+                if (!TypeReferencesMatch(leftArguments[i], rightArguments[i]))
+                    return false;
+            }
+
+            return true;
+        }
+
+        return string.Equals(left.FullName, right.FullName, StringComparison.Ordinal)
+            && string.Equals(left.Assembly.GetName().Name, right.Assembly.GetName().Name, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool TypesReferenceEqual(Type[] left, Type[] right)
+    {
+        if (ReferenceEquals(left, right))
+            return true;
+        if (left is null || right is null || left.Length != right.Length)
+            return false;
+
+        for (int i = 0; i < left.Length; i++)
+        {
+            if (!ReferenceEquals(left[i], right[i]))
+                return false;
+        }
+
+        return true;
     }
 
 #endif
@@ -631,6 +991,9 @@ public sealed class MyAssemblyGen
 
         name = sb.ToString();
 
+#if NET9_0_OR_GREATER
+        parent = ResolvePersistedTypeReference(parent);
+#endif
         return _myModule.DefineType(name, attr, parent);
     }
 
@@ -644,7 +1007,14 @@ public sealed class MyAssemblyGen
     public Type MakeDelegateType(string name, Type[] parameters, Type returnType)
     {
         TypeBuilder builder = DefineType(name, typeof(MulticastDelegate), DelegateAttributes, false);
-        builder.DefineConstructor(CtorAttributes, CallingConventions.Standard, _DelegateCtorSignature).SetImplementationFlags(ImplAttributes);
+#if NET9_0_OR_GREATER
+        parameters = ResolvePersistedTypeReferences(parameters);
+        returnType = ResolvePersistedTypeReference(returnType);
+        Type[] delegateCtorSignature = ResolvePersistedTypeReferences(_DelegateCtorSignature);
+#else
+        Type[] delegateCtorSignature = _DelegateCtorSignature;
+#endif
+        builder.DefineConstructor(CtorAttributes, CallingConventions.Standard, delegateCtorSignature).SetImplementationFlags(ImplAttributes);
         builder.DefineMethod("Invoke", InvokeAttributes, returnType, parameters).SetImplementationFlags(ImplAttributes);
         return builder.CreateTypeInfo();
     }
