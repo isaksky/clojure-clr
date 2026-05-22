@@ -53,7 +53,9 @@ Runtime-library objects such as `Var`, `Keyword`, `Symbol`, and persistent colle
 - Dynamic host interop remains deferred. `DynInitHelper` creates helper types, delegate types, call-site fields, and setter methods that are not yet registered as paired logical artifacts.
 - `MethodExpr.EmitDynamicCallPreamble` defines backend-local interop lambda methods directly on `context.TB`; those helper methods need generated-member identities if dynamic host interop enters the milestone.
 - `NewInstanceExpr` and `NewInstanceMethod` still define `deftype*`/`reify*` base and implementation constructors, fields, `getBasis`, `create`, dummy methods, and overrides without the minimal function-class mapping policy.
-- `GenClass`, `GenProxy`, `GenInterface`, and `GenDelegate` remain separate generator families and should stay outside the first milestone until their backend policy is explicit.
+- `GenInterface` is now supported for the current runtime namespace tranche through paired persisted/eval generation and registry records for generated interface types and methods.
+- `GenDelegate` is now supported for the current runtime namespace tranche through a runtime-only wrapper policy: persisted code calls `GenDelegate.Create`, and saved namespace DLLs do not reference transient wrapper assemblies.
+- `GenClass` and `GenProxy` remain separate generator families and should stay outside the first milestone until their backend policy is explicit.
 
 ## Verification
 

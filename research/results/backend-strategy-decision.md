@@ -8,6 +8,21 @@ The current minimal AOT sample compiles, source-free loads, and verifies with `d
 
 That means the immediate blocker is not "PersistedAssemblyBuilder cannot save the minimal assembly." The immediate architectural work is a backend-aware identity map so eval and persisted generation do not share raw `Type`/member objects.
 
+## Reassessment After Paired Generation
+
+Decision: keep the first implementation on Reflection.Emit plus `PersistedAssemblyBuilder`; do not start a Cecil backend for the next AOT slice.
+
+The paired-generation path now covers the original `def`/`defn`/top-level `let` sample, macro/progressive-eval fixtures, source-free fresh-process loading, generated function identity pairing, init/function constants and member records, same-runtime target policy, and the current runtime namespace tranche (`clojure.walk`, `clojure.template`, `clojure.set`, `clojure.string`, and `clojure.data`). The first generated-form expansion beyond the original tranche also works without replacing the backend: `gen-interface` is paired across persisted/eval contexts, and `gen-delegate` uses a runtime-only wrapper policy so saved namespace DLLs do not reference transient delegate assemblies.
+
+The remaining open work is feature-specific rather than a general backend failure:
+
+- Dynamic host interop call-site helpers still need backend-aware pairing (`clojure-clr-pop`).
+- `gen-class` and `proxy` still need policy/support work before they can be part of persisted namespace AOT (`clojure-clr-7pi` tracks the immediate test-policy issue for `gen-class`).
+- Cross-TFM reference assembly selection remains intentionally deferred behind the same-runtime policy (`clojure-clr-rjb`).
+- Portable debug symbols remain disabled until PersistedAssemblyBuilder output is verified with PDB/debug directory coverage (`clojure-clr-zkm`).
+
+Introduce Cecil only if one of those slices proves that `PersistedAssemblyBuilder` cannot express the required metadata or cannot produce a valid artifact with acceptable verification. Until then, Cecil remains a design reference for a future backend boundary, resolver/import behavior, symbols, strong naming, deterministic output, and branch/exception-handler discipline.
+
 ## PersistedAssemblyBuilder Findings
 
 Works for the first milestone:

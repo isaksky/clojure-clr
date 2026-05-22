@@ -154,7 +154,12 @@ Likely design lessons:
 ## Practical Questions To Answer Next
 
 - Should Clojure-CLR keep `CljILGen` as the compiler-facing API and add a Cecil-backed implementation, or introduce a smaller backend-neutral emitter interface?
+  Answer after paired-generation checkpoint: no Cecil emitter boundary is needed for the next AOT slice. Keep the current Reflection.Emit/`PersistedAssemblyBuilder` path and continue tightening generated-artifact identities unless a feature-specific blocker proves that persisted Reflection.Emit cannot express the required metadata.
 - Does AOT need to support both Reflection.Emit/PersistedAssemblyBuilder and Cecil during a transition?
+  Answer after paired-generation checkpoint: not yet. Supporting both would add backend replacement work before the remaining dynamic host interop, generated-form, cross-TFM, and debug-symbol issues have demonstrated a need for Cecil.
 - How will generated debug information and sequence points be represented?
+  Still open. Modern persisted AOT currently disables persisted debug document/PDB emission; `clojure-clr-zkm` tracks verified portable debug symbols.
 - How will Clojure-CLR import references for generic methods/types, especially generated closure and function classes?
+  Partially answered for current generated artifacts by `GeneratedArtifactRegistry`, paired `GenContext`s, paired `gen-interface`, and runtime-only `gen-delegate` wrappers. Dynamic host interop helpers, `deftype*`/`reify*`, `gen-class`, and `proxy` still need targeted policies.
 - What verification tool will be used in CI for generated assemblies?
+  The NUnit AOT fixture now covers reflection inspection and source-free fresh-process loading by default, with `dotnet-ilverify` available through `CLOJURE_AOT_ILVERIFY` for an opt-in IL verification gate.
