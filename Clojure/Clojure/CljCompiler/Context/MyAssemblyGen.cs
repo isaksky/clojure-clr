@@ -6,6 +6,7 @@ using System.IO;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Security;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 
@@ -536,15 +537,20 @@ public sealed class MyAssemblyGen
             _entryPointMethodBuilder is null 
             ? default
             : MetadataTokens.MethodDefinitionHandle(_entryPointMethodBuilder.MetadataToken);
-        DebugDirectoryBuilder debugDirectoryBuilder = GeneratePdb(pdbBuilder, metadataBuilder.GetRowCounts(), entryPointHandle);
+        DebugDirectoryBuilder debugDirectoryBuilder = _docWriter is null
+            ? null
+            : GeneratePdb(pdbBuilder, metadataBuilder.GetRowCounts(), entryPointHandle, Path.ChangeExtension(_outFileName, ".pdb"));
 
         ManagedPEBuilder peBuilder = new(
-                    header: PEHeaderBuilder.CreateExecutableHeader(),
+                    header: _entryPointMethodBuilder is null
+                        ? PEHeaderBuilder.CreateLibraryHeader()
+                        : PEHeaderBuilder.CreateExecutableHeader(),
                     metadataRootBuilder: new MetadataRootBuilder(metadataBuilder),
                     ilStream: ilStream,
                     mappedFieldData: fieldData,
                     debugDirectoryBuilder: debugDirectoryBuilder,
-                    entryPoint: entryPointHandle);
+                    entryPoint: entryPointHandle,
+                    deterministicIdProvider: ComputeDeterministicId);
 
         BlobBuilder peBlob = new();
         peBuilder.Serialize(peBlob);
@@ -554,20 +560,35 @@ public sealed class MyAssemblyGen
         peBlob.WriteContentTo(fileStream);
     }
 
-    static DebugDirectoryBuilder GeneratePdb(MetadataBuilder pdbBuilder, ImmutableArray<int> rowCounts, MethodDefinitionHandle entryPointHandle)
+    static DebugDirectoryBuilder GeneratePdb(
+        MetadataBuilder pdbBuilder,
+        ImmutableArray<int> rowCounts,
+        MethodDefinitionHandle entryPointHandle,
+        string pdbPath)
     {
         BlobBuilder portablePdbBlob = new BlobBuilder();
-        PortablePdbBuilder portablePdbBuilder = new PortablePdbBuilder(pdbBuilder, rowCounts, entryPointHandle);
+        PortablePdbBuilder portablePdbBuilder = new PortablePdbBuilder(
+            pdbBuilder,
+            rowCounts,
+            entryPointHandle,
+            ComputeDeterministicId);
         BlobContentId pdbContentId = portablePdbBuilder.Serialize(portablePdbBlob);
-        // In case saving PDB to a file
-        //using FileStream fileStream = new FileStream("MyAssemblyEmbeddedSource.pdb", FileMode.Create, FileAccess.Write);
-        //portablePdbBlob.WriteContentTo(fileStream);
 
         DebugDirectoryBuilder debugDirectoryBuilder = new DebugDirectoryBuilder();
-        debugDirectoryBuilder.AddCodeViewEntry("MyAssemblyEmbeddedSource.pdb", pdbContentId, portablePdbBuilder.FormatVersion);
-        // In case embedded in PE:
-         debugDirectoryBuilder.AddEmbeddedPortablePdbEntry(portablePdbBlob, portablePdbBuilder.FormatVersion);
+        debugDirectoryBuilder.AddCodeViewEntry(pdbPath, pdbContentId, portablePdbBuilder.FormatVersion);
+        debugDirectoryBuilder.AddEmbeddedPortablePdbEntry(portablePdbBlob, portablePdbBuilder.FormatVersion);
+        debugDirectoryBuilder.AddPdbChecksumEntry("SHA256", ImmutableArray.CreateRange(SHA256.HashData(portablePdbBlob.ToArray())));
+        debugDirectoryBuilder.AddReproducibleEntry();
         return debugDirectoryBuilder;
+    }
+
+    private static BlobContentId ComputeDeterministicId(IEnumerable<Blob> blobs)
+    {
+        using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        foreach (Blob blob in blobs)
+            hash.AppendData(blob.GetBytes());
+
+        return BlobContentId.FromHash(hash.GetHashAndReset());
     }
 #endif
 

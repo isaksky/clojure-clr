@@ -70,6 +70,10 @@ namespace clojure.lang.CljCompiler.Context
         readonly SymbolDocumentInfo _docInfo;
         public SymbolDocumentInfo DocInfo { get { return _docInfo; } }
 
+#if NET9_0_OR_GREATER
+        readonly Dictionary<ILGenerator, int> _lastSequencePointOffsets = new();
+#endif
+
         TypeBuilder _tb;
         public TypeBuilder TB { get { return _tb; } }
 
@@ -295,7 +299,11 @@ namespace clojure.lang.CljCompiler.Context
 #elif NET9_0_OR_GREATER
             if (_isDebuggable && assemblyType == AssemblyType.External)
             {
-                _docWriter = ModuleBuilder.DefineDocument(sourceName, ClojureContext.Default.LanguageGuid); 
+                _docWriter = ModuleBuilder.DefineDocument(
+                    sourceName,
+                    ClojureContext.Default.LanguageGuid,
+                    ClojureContext.Default.VendorGuid,
+                    Guid.Empty);
                 _assyGen.SetDocWriter(_docWriter);
             }
 #endif
@@ -313,11 +321,7 @@ namespace clojure.lang.CljCompiler.Context
         private static bool ShouldEmitDebugInfo(AssemblyType assemblyType)
         {
 #if DEBUG
-#if NET9_0_OR_GREATER
-            return assemblyType != AssemblyType.External;
-#else
             return true;
-#endif
 #else
             return false;
 #endif
@@ -493,6 +497,11 @@ namespace clojure.lang.CljCompiler.Context
                 {
                     try
                     {
+#if NET9_0_OR_GREATER
+                        // Persisted portable PDBs reject duplicate/non-advancing offsets.
+                        if (ArtifactBackend == GeneratedArtifactBackend.Persisted && !ShouldEmitPortableSequencePoint(ilg.ILGenerator))
+                            return;
+#endif
                         ilg.ILGenerator.MarkSequencePoint(_docWriter, startLine, startCol, finishLine, finishCol);
                     }
                     catch (NotSupportedException)
@@ -503,6 +512,21 @@ namespace clojure.lang.CljCompiler.Context
             }
 #endif
         }
+
+#if NET9_0_OR_GREATER
+        private bool ShouldEmitPortableSequencePoint(ILGenerator ilGenerator)
+        {
+            int offset = ilGenerator.ILOffset;
+            lock (_lastSequencePointOffsets)
+            {
+                if (_lastSequencePointOffsets.TryGetValue(ilGenerator, out int lastOffset) && offset <= lastOffset)
+                    return false;
+
+                _lastSequencePointOffsets[ilGenerator] = offset;
+                return true;
+            }
+        }
+#endif
 
         public static void SetLocalName(LocalBuilder lb, string name)
         {

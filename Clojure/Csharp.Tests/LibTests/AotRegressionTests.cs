@@ -5,6 +5,8 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Text.RegularExpressions;
@@ -39,6 +41,12 @@ namespace Clojure.Tests.LibTests
   (+ x invoked))
 
 (def after-let :loaded)
+";
+
+        private const string DebugSymbolsBody = @"(def answer 41)
+(defn inc-answer []
+  (inc answer))
+(def invoked (inc-answer))
 ";
 
         private const string ProgressiveMacroBody = @"
@@ -292,18 +300,70 @@ namespace Clojure.Tests.LibTests
         }
 
         [Test]
-        public void ModernPersistedAotDoesNotEmitPersistedDebugSymbolsInFirstPass()
+        public void ModernPersistedAotEmitsVerifiedPortableDebugSymbols()
         {
-            using AotSample sample = AotSample.Create();
+            using AotSample sample = AotSample.Create(DebugSymbolsBody);
             GenContext context = CompileSampleWithExplicitContext(sample);
 
-            Assert.That(context.IsDebuggable, Is.False,
-                "Modern persisted AOT keeps debug document/PDB emission disabled until that path is verified.");
-            Assert.That(context.DocWriter, Is.Null);
+#if !DEBUG
+            Assert.That(context.IsDebuggable, Is.False);
+            Assert.Ignore("Persisted AOT debug symbol emission is enabled for Debug builds only.");
+#else
+            Assert.That(context.IsDebuggable, Is.True,
+                "Debug builds should emit persisted AOT debug metadata after the portable PDB path is verified.");
+            Assert.That(context.DocWriter, Is.Not.Null,
+                "Persisted AOT should define a symbol document before sequence point emission.");
 
             SaveExplicitContext(context);
+
+            using (FileStream stream = File.OpenRead(sample.AssemblyPath))
+            using (PEReader peReader = new(stream))
+            {
+                var debugDirectory = peReader.ReadDebugDirectory();
+
+                Assert.That(peReader.PEHeaders.IsDll, Is.True,
+                    "The manual persisted save path should still produce a loadable DLL image.");
+                Assert.That(debugDirectory.Any(entry => entry.Type == DebugDirectoryEntryType.Reproducible), Is.True,
+                    "Persisted debug output should mark the PE as reproducible.");
+
+                DebugDirectoryEntry codeViewEntry = debugDirectory.Single(entry =>
+                    entry.Type == DebugDirectoryEntryType.CodeView && entry.IsPortableCodeView);
+                CodeViewDebugDirectoryData codeView = peReader.ReadCodeViewDebugDirectoryData(codeViewEntry);
+
+                Assert.That(codeView.Path, Is.EqualTo(Path.ChangeExtension(Path.GetFileName(sample.AssemblyPath), ".pdb")));
+                Assert.That(codeView.Age, Is.EqualTo(1));
+
+                DebugDirectoryEntry checksumEntry = debugDirectory.Single(entry =>
+                    entry.Type == DebugDirectoryEntryType.PdbChecksum);
+                PdbChecksumDebugDirectoryData checksum = peReader.ReadPdbChecksumDebugDirectoryData(checksumEntry);
+
+                Assert.That(checksum.AlgorithmName, Is.EqualTo("SHA256"));
+                Assert.That(checksum.Checksum.Length, Is.EqualTo(32));
+
+                DebugDirectoryEntry embeddedPdbEntry = debugDirectory.Single(entry =>
+                    entry.Type == DebugDirectoryEntryType.EmbeddedPortablePdb);
+                using MetadataReaderProvider pdbProvider = peReader.ReadEmbeddedPortablePdbDebugDirectoryData(embeddedPdbEntry);
+                MetadataReader pdbReader = pdbProvider.GetMetadataReader();
+
+                string[] documentNames = pdbReader.Documents
+                    .Select(handle => pdbReader.GetString(pdbReader.GetDocument(handle).Name))
+                    .ToArray();
+                SequencePoint[] sequencePoints = pdbReader.MethodDebugInformation
+                    .SelectMany(handle => pdbReader.GetMethodDebugInformation(handle).GetSequencePoints())
+                    .Where(point => !point.IsHidden)
+                    .ToArray();
+
+                Assert.That(documentNames, Does.Contain(sample.SourceFileName),
+                    "Persisted sequence points should map back to the compiled Clojure source file.");
+                Assert.That(sequencePoints, Is.Not.Empty,
+                    "Persisted portable PDBs should contain emitted Clojure sequence points.");
+                Assert.That(sequencePoints.Any(point => point.StartLine <= 4 && point.EndLine >= 4), Is.True,
+                    "The generated function body should retain a source span covering (inc answer).");
+            }
+
             Assembly assembly = Assembly.LoadFrom(sample.AssemblyPath);
-            Assert.That(assembly.GetCustomAttribute<DebuggableAttribute>(), Is.Null);
+            Assert.That(assembly.GetCustomAttribute<DebuggableAttribute>(), Is.Not.Null);
+#endif
         }
 
         [TestCaseSource(nameof(UnsupportedGeneratedFormCases))]
