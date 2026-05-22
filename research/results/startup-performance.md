@@ -9,8 +9,8 @@ Primary target for the current branch:
 - Command: `dotnet Clojure/Clojure.Main/bin/Release/net10.0/Clojure.Main.dll -e "(println :ok)"`
 - Environment: Release `net10.0`, warm filesystem, no `CLOJURE_LOAD_PATH` override
 - Required default behavior: compiled runtime `clojure.*.clj.dll` files are used from the `Clojure.Main` output directory
-- Pass threshold: median of 10 runs <= 750 ms
-- Pass threshold: p95 of 10 runs <= 1000 ms
+- Pass threshold: median of 10 runs <= 500 ms
+- Pass threshold: p95 of 10 runs <= 600 ms
 
 Secondary target:
 
@@ -93,6 +93,6 @@ Do not mark `clojure-clr-qiz` complete until this file records:
 - The benchmark command or script used.
 - Runtime, SDK, OS, architecture, configuration, and commit.
 - At least 10 measured runs for the primary command.
-- Median <= 750 ms and p95 <= 1000 ms for the primary command.
+- Median <= 500 ms and p95 <= 600 ms for the primary command.
 - Secondary require-path measurement.
 - Relevant AOT regression tests passing, or a precise explanation of any tests that could not be run.
