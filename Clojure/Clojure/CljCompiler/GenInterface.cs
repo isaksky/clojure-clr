@@ -58,7 +58,7 @@ namespace clojure.lang
             // See Java committ 8d6fdb, 2015.07.17, related to CLJ-1645
             // TODO: part of check on debug info
 
-            SetCustomAttributes(proxyTB, attributes);
+            SetCustomAttributes(context, proxyTB, attributes);
 
             DefineMethods(context, generatedType, proxyTB, methods);
 
@@ -109,64 +109,153 @@ namespace clojure.lang
 
         public static void SetCustomAttributes(TypeBuilder tb, IPersistentMap attributes)
         {
-            foreach ( CustomAttributeBuilder cab in CreateCustomAttributeBuilders(attributes) )
-                tb.SetCustomAttribute(cab);
+            SetCustomAttributes(CurrentCustomAttributeContext(), tb, attributes);
+        }
+
+        public static void SetCustomAttributes(GenContext context, TypeBuilder tb, IPersistentMap attributes)
+        {
+            foreach (CustomAttributeSpec spec in CreateCustomAttributeSpecs(attributes))
+            {
+                if (context is null)
+                    tb.SetCustomAttribute(spec.CreateBuilder());
+                else
+                    context.SetCustomAttribute(
+                        tb,
+                        spec.Constructor,
+                        spec.ConstructorArgs,
+                        spec.Properties,
+                        spec.PropertyValues,
+                        spec.Fields,
+                        spec.FieldValues);
+            }
         }
 
         public static void SetCustomAttributes(FieldBuilder fb, IPersistentMap attributes)
         {
-            foreach (CustomAttributeBuilder cab in CreateCustomAttributeBuilders(attributes))
-                fb.SetCustomAttribute(cab);
+            SetCustomAttributes(CurrentCustomAttributeContext(), fb, attributes);
+        }
+
+        public static void SetCustomAttributes(GenContext context, FieldBuilder fb, IPersistentMap attributes)
+        {
+            foreach (CustomAttributeSpec spec in CreateCustomAttributeSpecs(attributes))
+            {
+                if (context is null)
+                    fb.SetCustomAttribute(spec.CreateBuilder());
+                else
+                    context.SetCustomAttribute(
+                        fb,
+                        spec.Constructor,
+                        spec.ConstructorArgs,
+                        spec.Properties,
+                        spec.PropertyValues,
+                        spec.Fields,
+                        spec.FieldValues);
+            }
         }
 
         public static void SetCustomAttributes(MethodBuilder mb, IPersistentMap attributes)
         {
-            foreach (CustomAttributeBuilder cab in CreateCustomAttributeBuilders(attributes))
-                mb.SetCustomAttribute(cab);
+            SetCustomAttributes(CurrentCustomAttributeContext(), mb, attributes);
+        }
+
+        public static void SetCustomAttributes(GenContext context, MethodBuilder mb, IPersistentMap attributes)
+        {
+            foreach (CustomAttributeSpec spec in CreateCustomAttributeSpecs(attributes))
+            {
+                if (context is null)
+                    mb.SetCustomAttribute(spec.CreateBuilder());
+                else
+                    context.SetCustomAttribute(
+                        mb,
+                        spec.Constructor,
+                        spec.ConstructorArgs,
+                        spec.Properties,
+                        spec.PropertyValues,
+                        spec.Fields,
+                        spec.FieldValues);
+            }
         }
 
         public static void SetCustomAttributes(ParameterBuilder pb, IPersistentMap attributes)
         {
-            foreach (CustomAttributeBuilder cab in CreateCustomAttributeBuilders(attributes))
-                pb.SetCustomAttribute(cab);
+            SetCustomAttributes(CurrentCustomAttributeContext(), pb, attributes);
+        }
+
+        public static void SetCustomAttributes(GenContext context, ParameterBuilder pb, IPersistentMap attributes)
+        {
+            foreach (CustomAttributeSpec spec in CreateCustomAttributeSpecs(attributes))
+            {
+                if (context is null)
+                    pb.SetCustomAttribute(spec.CreateBuilder());
+                else
+                    context.SetCustomAttribute(
+                        pb,
+                        spec.Constructor,
+                        spec.ConstructorArgs,
+                        spec.Properties,
+                        spec.PropertyValues,
+                        spec.Fields,
+                        spec.FieldValues);
+            }
         }
 
         public static void SetCustomAttributes(ConstructorBuilder cb, IPersistentMap attributes)
         {
-            foreach (CustomAttributeBuilder cab in CreateCustomAttributeBuilders(attributes))
-                cb.SetCustomAttribute(cab);
+            SetCustomAttributes(CurrentCustomAttributeContext(), cb, attributes);
+        }
+
+        public static void SetCustomAttributes(GenContext context, ConstructorBuilder cb, IPersistentMap attributes)
+        {
+            foreach (CustomAttributeSpec spec in CreateCustomAttributeSpecs(attributes))
+            {
+                if (context is null)
+                    cb.SetCustomAttribute(spec.CreateBuilder());
+                else
+                    context.SetCustomAttribute(
+                        cb,
+                        spec.Constructor,
+                        spec.ConstructorArgs,
+                        spec.Properties,
+                        spec.PropertyValues,
+                        spec.Fields,
+                        spec.FieldValues);
+            }
         }
 
         static readonly Keyword ARGS_KEY = Keyword.intern(null,"__args");
 
-
-        private static List<CustomAttributeBuilder> CreateCustomAttributeBuilders(IPersistentMap attributes)
+        private static GenContext CurrentCustomAttributeContext()
         {
-            List<CustomAttributeBuilder> builders = new List<CustomAttributeBuilder>();
+            return Compiler.CompilerContextVar.deref() as GenContext;
+        }
+
+        private static List<CustomAttributeSpec> CreateCustomAttributeSpecs(IPersistentMap attributes)
+        {
+            List<CustomAttributeSpec> builders = new List<CustomAttributeSpec>();
             for (ISeq s = RT.seq(attributes); s != null; s = s.next())
-                builders.AddRange(CreateCustomAttributeBuilders((IMapEntry)s.first()));
+                builders.AddRange(CreateCustomAttributeSpecs((IMapEntry)s.first()));
             return builders;
         }
 
 
-        private static List<CustomAttributeBuilder> CreateCustomAttributeBuilders(IMapEntry me)
+        private static List<CustomAttributeSpec> CreateCustomAttributeSpecs(IMapEntry me)
         {
  
             Type t = (Type)me.key();
             IPersistentSet inits = (IPersistentSet)me.val();
 
-            List<CustomAttributeBuilder> builders = new List<CustomAttributeBuilder>(inits.count());
+            List<CustomAttributeSpec> builders = new List<CustomAttributeSpec>(inits.count());
 
             for (ISeq s = RT.seq(inits); s != null; s = s.next())
             {
                 IPersistentMap init = (IPersistentMap)s.first();
-                builders.Add(CreateCustomAttributeBuilder(t, init));
+                builders.Add(CreateCustomAttributeSpec(t, init));
             }
 
             return builders;
         }
 
-        private static CustomAttributeBuilder CreateCustomAttributeBuilder(Type t, IPersistentMap args)
+        private static CustomAttributeSpec CreateCustomAttributeSpec(Type t, IPersistentMap args)
         {
             object[] ctorArgs = new object[0];
             Type[] ctorTypes = Type.EmptyTypes;
@@ -212,16 +301,25 @@ namespace clojure.lang
             if (ctor == null)
                 throw new ArgumentException(String.Format("Unable to find constructor for attribute: {0}", t.FullName));
 
-            CustomAttributeBuilder cb = new CustomAttributeBuilder(ctor,ctorArgs,pInfos.ToArray(),pVals.ToArray(),fInfos.ToArray(),fVals.ToArray());
-
-            return cb;
+            return new CustomAttributeSpec(
+                ctor,
+                ctorArgs,
+                pInfos.ToArray(),
+                pVals.ToArray(),
+                fInfos.ToArray(),
+                fVals.ToArray());
         }
 
         private static Type[] GetCtorTypes(object[] args)
         {
             Type[] types = new Type[args.Length];
             for (int i = 0; i < args.Length; i++)
-                types[i] = args[i].GetType();
+            {
+                if (args[i] is null)
+                    throw new ArgumentException("Custom attribute constructor arguments cannot be null.");
+
+                types[i] = args[i] is Type ? typeof(Type) : args[i].GetType();
+            }
 
             return types;
         }
@@ -233,6 +331,43 @@ namespace clojure.lang
                 args[i] = v.nth(i);
 
             return args;
+        }
+
+        private sealed class CustomAttributeSpec
+        {
+            internal CustomAttributeSpec(
+                ConstructorInfo constructor,
+                object[] constructorArgs,
+                PropertyInfo[] properties,
+                object[] propertyValues,
+                FieldInfo[] fields,
+                object[] fieldValues)
+            {
+                Constructor = constructor;
+                ConstructorArgs = constructorArgs;
+                Properties = properties;
+                PropertyValues = propertyValues;
+                Fields = fields;
+                FieldValues = fieldValues;
+            }
+
+            internal ConstructorInfo Constructor { get; }
+            internal object[] ConstructorArgs { get; }
+            internal PropertyInfo[] Properties { get; }
+            internal object[] PropertyValues { get; }
+            internal FieldInfo[] Fields { get; }
+            internal object[] FieldValues { get; }
+
+            internal CustomAttributeBuilder CreateBuilder()
+            {
+                return new CustomAttributeBuilder(
+                    Constructor,
+                    ConstructorArgs,
+                    Properties,
+                    PropertyValues,
+                    Fields,
+                    FieldValues);
+            }
         }
         
         
@@ -264,7 +399,7 @@ namespace clojure.lang
             MethodBuilder mb = proxyTB.DefineMethod(mname.Name, MethodAttributes.Abstract | MethodAttributes.Public| MethodAttributes.Virtual, retType, paramTypes);
             context.RegisterGeneratedMember(generatedType, GeneratedMemberKind.Method, mname.Name, mb);
 
-            SetCustomAttributes(mb, GenInterface.ExtractAttributes(RT.meta(mname)));
+            SetCustomAttributes(context, mb, GenInterface.ExtractAttributes(RT.meta(mname)));
             int i=1;
             for (ISeq s = pmetas; s != null; s = s.next(), i++)
             {
@@ -272,7 +407,7 @@ namespace clojure.lang
                 if (meta != null && meta.count() > 0)
                 {
                     ParameterBuilder pb = mb.DefineParameter(i, ParameterAttributes.None, String.Format("p_{0}",i));
-                    GenInterface.SetCustomAttributes(pb, meta);
+                    GenInterface.SetCustomAttributes(context, pb, meta);
                 }
             }
 

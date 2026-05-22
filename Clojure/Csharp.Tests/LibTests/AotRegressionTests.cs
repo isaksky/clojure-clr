@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Reflection.Emit;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
@@ -378,6 +379,40 @@ namespace Clojure.Tests.LibTests
                 + DumpMetadataReferences(sample.AssemblyPath, "System.Private.CoreLib"));
             Assert.That(assembly.GetReferencedAssemblies().Any(IsEvalOrInternalDynamicReference), Is.False,
                 "Explicit target selection should still avoid transient eval/internal dynamic assembly references.");
+        }
+
+        [Test]
+        public void ExplicitTargetMetadataAttributesPreserveNamedMembersWithoutRuntimeCoreLeaks()
+        {
+            string targetFramework = CurrentTestTargetFramework();
+            string referenceAssemblyDirectory = FindReferenceAssemblyDirectory(targetFramework);
+            if (referenceAssemblyDirectory is null)
+                Assert.Ignore($"No Microsoft.NETCore.App.Ref reference assemblies are installed for {targetFramework}.");
+
+            using AotCompileOutput output = AotCompileOutput.Create();
+            string typeName = "AotAttributeCarrier" + Guid.NewGuid().ToString("N");
+            string assemblyPath = EmitMetadataAttributeSample(
+                output.CompilePath,
+                typeName,
+                targetFramework,
+                referenceAssemblyDirectory);
+
+            Assembly assembly = Assembly.LoadFrom(assemblyPath);
+            Type emittedType = assembly.GetType(typeName, throwOnError: true);
+            AssertAotAttribute(emittedType, "type", "type-property", "type-field");
+            AssertAotAttribute(emittedType.GetField("value"), "field", "field-property", "field-field");
+
+            ConstructorInfo constructor = emittedType.GetConstructor(Type.EmptyTypes);
+            AssertAotAttribute(constructor, "constructor", "constructor-property", "constructor-field");
+
+            MethodInfo sampleMethod = emittedType.GetMethod("sample");
+            Assert.That(sampleMethod, Is.Not.Null);
+            AssertAotAttribute(sampleMethod, "method", "method-property", "method-field");
+
+            ParameterInfo parameter = sampleMethod.GetParameters().Single();
+            AssertAotAttribute(parameter, "parameter", "parameter-property", "parameter-field");
+
+            AssertNoSystemPrivateCoreLibReference(assemblyPath, "metadata-attribute direct emission DLL");
         }
 
         [Test]
@@ -1115,6 +1150,133 @@ namespace Clojure.Tests.LibTests
             return var.deref();
         }
 
+        private static void AssertAotAttribute(
+            ICustomAttributeProvider provider,
+            string constructorValue,
+            string propertyValue,
+            string fieldValue)
+        {
+            Assert.That(provider, Is.Not.Null);
+            AotRegressionAttribute attribute = provider
+                .GetCustomAttributes(typeof(AotRegressionAttribute), false)
+                .Cast<AotRegressionAttribute>()
+                .Single();
+
+            Assert.That(attribute.ConstructorValue, Is.EqualTo(constructorValue));
+            Assert.That(attribute.PropertyValue, Is.EqualTo(propertyValue));
+            Assert.That(attribute.FieldValue, Is.EqualTo(fieldValue));
+        }
+
+        private static string EmitMetadataAttributeSample(
+            string compilePath,
+            string typeName,
+            string targetFramework,
+            string referenceAssemblyDirectory)
+        {
+            Var compilerOptionsVar = Var.find(Symbol.intern("clojure.core", "*compiler-options*"));
+            object compilerOptions = CompilerOptions(
+                directLinking: false,
+                targetFramework: targetFramework,
+                referenceAssemblyPath: referenceAssemblyDirectory);
+
+            Var.pushThreadBindings(RT.map(
+                Compiler.CompilePathVar,
+                compilePath,
+                compilerOptionsVar,
+                compilerOptions));
+
+            try
+            {
+                GenContext context = GenContext.CreateWithExternalAssembly(
+                    "metadata-attributes.clj",
+                    typeName,
+                    ".dll",
+                    false);
+
+                TypeBuilder typeBuilder = context.ModuleBuilder.DefineType(
+                    typeName,
+                    TypeAttributes.Public | TypeAttributes.Class,
+                    context.ResolveEmittedType(typeof(object)));
+                GenInterface.SetCustomAttributes(
+                    context,
+                    typeBuilder,
+                    AotAttributeMap("type", "type-property", "type-field"));
+
+                FieldBuilder fieldBuilder = context.DefineField(
+                    typeBuilder,
+                    "value",
+                    typeof(string),
+                    FieldAttributes.Public);
+                GenInterface.SetCustomAttributes(
+                    context,
+                    fieldBuilder,
+                    AotAttributeMap("field", "field-property", "field-field"));
+
+                ConstructorBuilder constructorBuilder = context.DefineConstructor(
+                    typeBuilder,
+                    MethodAttributes.Public,
+                    CallingConventions.HasThis,
+                    Type.EmptyTypes);
+
+                GenInterface.SetCustomAttributes(
+                    context,
+                    constructorBuilder,
+                    AotAttributeMap("constructor", "constructor-property", "constructor-field"));
+
+                ILGenerator il = constructorBuilder.GetILGenerator();
+                il.Emit(OpCodes.Ldarg_0);
+                il.Emit(OpCodes.Call, context.ResolveEmittedConstructor(typeof(object).GetConstructor(Type.EmptyTypes)));
+                il.Emit(OpCodes.Ret);
+
+                MethodBuilder methodBuilder = context.DefineMethod(
+                    typeBuilder,
+                    "sample",
+                    MethodAttributes.Public,
+                    typeof(string),
+                    [typeof(string)]);
+                GenInterface.SetCustomAttributes(
+                    context,
+                    methodBuilder,
+                    AotAttributeMap("method", "method-property", "method-field"));
+
+                ParameterBuilder parameterBuilder = methodBuilder.DefineParameter(
+                    1,
+                    ParameterAttributes.None,
+                    "x");
+                GenInterface.SetCustomAttributes(
+                    context,
+                    parameterBuilder,
+                    AotAttributeMap("parameter", "parameter-property", "parameter-field"));
+
+                ILGenerator methodIl = methodBuilder.GetILGenerator();
+                methodIl.Emit(OpCodes.Ldarg_1);
+                methodIl.Emit(OpCodes.Ret);
+
+                typeBuilder.CreateType();
+                SaveExplicitContext(context);
+                return context.Path;
+            }
+            finally
+            {
+                Var.popThreadBindings();
+            }
+        }
+
+        private static IPersistentMap AotAttributeMap(string constructorValue, string propertyValue, string fieldValue)
+        {
+            IPersistentMap init = RT.map(
+                Keyword.intern(null, "__args"),
+                RT.vector(constructorValue),
+                Keyword.intern(null, "PropertyValue"),
+                propertyValue,
+                Keyword.intern(null, "FieldValue"),
+                fieldValue);
+
+            return RT.map(
+                typeof(AotRegressionAttribute),
+                PersistentHashSet.create(init));
+        }
+
         private static bool IsGeneratedHelperRuntimeName(string name)
         {
             return name is not null && Regex.IsMatch(name, @"\$helper__\d+(?=__|\$|$)");
@@ -1154,6 +1316,15 @@ namespace Clojure.Tests.LibTests
             Assembly assembly = Assembly.LoadFrom(assemblyPath);
             Assert.That(assembly.GetReferencedAssemblies().Any(IsEvalOrInternalDynamicReference), Is.False,
                 assemblyDescription + " must not reference transient eval/internal dynamic assemblies.");
+        }
+
+        private static void AssertNoSystemPrivateCoreLibReference(string assemblyPath, string assemblyDescription)
+        {
+            Assembly assembly = Assembly.LoadFrom(assemblyPath);
+            Assert.That(assembly.GetReferencedAssemblies().Select(reference => reference.Name), Does.Not.Contain("System.Private.CoreLib"),
+                assemblyDescription + " must not reference System.Private.CoreLib when explicit target reference assemblies are selected."
+                + Environment.NewLine
+                + DumpMetadataReferences(assemblyPath, "System.Private.CoreLib"));
         }
 
         private static string DumpMetadataReferences(string assemblyPath, string assemblyName)
@@ -1376,6 +1547,19 @@ namespace Clojure.Tests.LibTests
                    + $"{Environment.NewLine}stderr:{Environment.NewLine}{StandardError}";
         }
 
+    }
+
+    [AttributeUsage(AttributeTargets.All, AllowMultiple = true)]
+    public sealed class AotRegressionAttribute : Attribute
+    {
+        public AotRegressionAttribute(string constructorValue)
+        {
+            ConstructorValue = constructorValue;
+        }
+
+        public string ConstructorValue { get; }
+        public string PropertyValue { get; set; }
+        public string FieldValue;
     }
 }
 

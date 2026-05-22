@@ -108,7 +108,7 @@ namespace clojure.lang
                 superclass, 
                 interfaceTypes.ToArray());
 
-            GenInterface.SetCustomAttributes(proxyTB, attributes);
+            GenInterface.SetCustomAttributes(_context, proxyTB, attributes);
     
             DefineCtors(proxyTB, superclass);
             MaybeImplementISerializable(proxyTB,interfaceTypes);

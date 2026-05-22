@@ -105,7 +105,7 @@ namespace clojure.lang
                 superclass,
                 interfaceTypes.ToArray());
 
-            GenInterface.SetCustomAttributes(proxyTB, attributes);
+            GenInterface.SetCustomAttributes(context, proxyTB, attributes);
 
             List<MethodSignature> sigs = GetAllSignatures(superclass,interfaceTypes,methods);
             Dictionary<string,List<MethodSignature>>  overloads = ComputeOverloads(sigs);
@@ -127,7 +127,7 @@ namespace clojure.lang
             varMap.TryGetValue(postInitName, out FieldBuilder postInitFB);
             varMap.TryGetValue(_mainName, out FieldBuilder mainFB);
 
-            DefineCtors(proxyTB, superclass, 
+            DefineCtors(context, proxyTB, superclass,
                 implNamespace + "." + prefix + initName, 
                 implNamespace + "." + prefix + postInitName, 
                 ctors, ctorTypes, initFB, postInitFB, stateFB, factoryName);
@@ -216,7 +216,8 @@ namespace clojure.lang
 
          
          
-        static void DefineCtors(TypeBuilder proxyTB, 
+        static void DefineCtors(GenContext context,
+            TypeBuilder proxyTB,
             Type superClass, 
             string initName, 
             string postInitName, 
@@ -248,7 +249,7 @@ namespace clojure.lang
                     throw new InvalidOperationException("Base class constructor missing or private");
 
                 ConstructorBuilder cb = proxyTB.DefineConstructor(MethodAttributes.Public, CallingConventions.HasThis, thisParamTypes);
-                GenInterface.SetCustomAttributes(cb, ctorAttributes);
+                GenInterface.SetCustomAttributes(context, cb, ctorAttributes);
 
                 CljILGen gen = new CljILGen(cb.GetILGenerator());
 

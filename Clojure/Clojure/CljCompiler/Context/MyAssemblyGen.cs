@@ -240,43 +240,176 @@ public sealed class MyAssemblyGen
 
     private void SetCustomAttribute(AssemblyBuilder target, ConstructorInfo constructor, object[] constructorArgs)
     {
-#if NET9_0_OR_GREATER
-        if (UsePersistedCustomAttributeBlob(constructor))
-        {
-            ConstructorInfo resolvedConstructor = ResolvePersistedConstructorReference(constructor);
-            target.SetCustomAttribute(resolvedConstructor, EncodeCustomAttributeBlob(resolvedConstructor, constructorArgs));
-            return;
-        }
-#endif
-
-        target.SetCustomAttribute(new CustomAttributeBuilder(constructor, constructorArgs));
+        SetCustomAttribute(
+            (resolvedConstructor, blob) => target.SetCustomAttribute(resolvedConstructor, blob),
+            builder => target.SetCustomAttribute(builder),
+            constructor,
+            constructorArgs,
+            null,
+            null,
+            null,
+            null);
     }
 
     private void SetCustomAttribute(ModuleBuilder target, ConstructorInfo constructor, object[] constructorArgs)
     {
+        SetCustomAttribute(
+            (resolvedConstructor, blob) => target.SetCustomAttribute(resolvedConstructor, blob),
+            builder => target.SetCustomAttribute(builder),
+            constructor,
+            constructorArgs,
+            null,
+            null,
+            null,
+            null);
+    }
+
+    private void SetCustomAttribute(
+        Action<ConstructorInfo, byte[]> setBlobAttribute,
+        Action<CustomAttributeBuilder> setBuilderAttribute,
+        ConstructorInfo constructor,
+        object[] constructorArgs,
+        PropertyInfo[] namedProperties,
+        object[] propertyValues,
+        FieldInfo[] namedFields,
+        object[] fieldValues)
+    {
 #if NET9_0_OR_GREATER
         if (UsePersistedCustomAttributeBlob(constructor))
         {
             ConstructorInfo resolvedConstructor = ResolvePersistedConstructorReference(constructor);
-            target.SetCustomAttribute(resolvedConstructor, EncodeCustomAttributeBlob(resolvedConstructor, constructorArgs));
+            setBlobAttribute(
+                resolvedConstructor,
+                EncodeCustomAttributeBlob(resolvedConstructor, constructorArgs, namedProperties, propertyValues, namedFields, fieldValues));
             return;
         }
 #endif
 
-        target.SetCustomAttribute(new CustomAttributeBuilder(constructor, constructorArgs));
+        setBuilderAttribute(CreateCustomAttributeBuilder(
+            constructor,
+            constructorArgs,
+            namedProperties,
+            propertyValues,
+            namedFields,
+            fieldValues));
+    }
+
+    private static CustomAttributeBuilder CreateCustomAttributeBuilder(
+        ConstructorInfo constructor,
+        object[] constructorArgs,
+        PropertyInfo[] namedProperties,
+        object[] propertyValues,
+        FieldInfo[] namedFields,
+        object[] fieldValues)
+    {
+        return new CustomAttributeBuilder(
+            constructor,
+            constructorArgs ?? ArrayUtils.EmptyObjects,
+            namedProperties ?? Array.Empty<PropertyInfo>(),
+            propertyValues ?? ArrayUtils.EmptyObjects,
+            namedFields ?? Array.Empty<FieldInfo>(),
+            fieldValues ?? ArrayUtils.EmptyObjects);
     }
 
 #if NET9_0_OR_GREATER
-    internal void SetCustomAttribute(TypeBuilder target, ConstructorInfo constructor, object[] constructorArgs)
+    internal void SetCustomAttribute(
+        TypeBuilder target,
+        ConstructorInfo constructor,
+        object[] constructorArgs,
+        PropertyInfo[] namedProperties,
+        object[] propertyValues,
+        FieldInfo[] namedFields,
+        object[] fieldValues)
     {
-        if (UsePersistedCustomAttributeBlob(constructor))
-        {
-            ConstructorInfo resolvedConstructor = ResolvePersistedConstructorReference(constructor);
-            target.SetCustomAttribute(resolvedConstructor, EncodeCustomAttributeBlob(resolvedConstructor, constructorArgs));
-            return;
-        }
+        SetCustomAttribute(
+            (resolvedConstructor, blob) => target.SetCustomAttribute(resolvedConstructor, blob),
+            builder => target.SetCustomAttribute(builder),
+            constructor,
+            constructorArgs,
+            namedProperties,
+            propertyValues,
+            namedFields,
+            fieldValues);
+    }
 
-        target.SetCustomAttribute(new CustomAttributeBuilder(constructor, constructorArgs));
+    internal void SetCustomAttribute(
+        FieldBuilder target,
+        ConstructorInfo constructor,
+        object[] constructorArgs,
+        PropertyInfo[] namedProperties,
+        object[] propertyValues,
+        FieldInfo[] namedFields,
+        object[] fieldValues)
+    {
+        SetCustomAttribute(
+            (resolvedConstructor, blob) => target.SetCustomAttribute(resolvedConstructor, blob),
+            builder => target.SetCustomAttribute(builder),
+            constructor,
+            constructorArgs,
+            namedProperties,
+            propertyValues,
+            namedFields,
+            fieldValues);
+    }
+
+    internal void SetCustomAttribute(
+        MethodBuilder target,
+        ConstructorInfo constructor,
+        object[] constructorArgs,
+        PropertyInfo[] namedProperties,
+        object[] propertyValues,
+        FieldInfo[] namedFields,
+        object[] fieldValues)
+    {
+        SetCustomAttribute(
+            (resolvedConstructor, blob) => target.SetCustomAttribute(resolvedConstructor, blob),
+            builder => target.SetCustomAttribute(builder),
+            constructor,
+            constructorArgs,
+            namedProperties,
+            propertyValues,
+            namedFields,
+            fieldValues);
+    }
+
+    internal void SetCustomAttribute(
+        ParameterBuilder target,
+        ConstructorInfo constructor,
+        object[] constructorArgs,
+        PropertyInfo[] namedProperties,
+        object[] propertyValues,
+        FieldInfo[] namedFields,
+        object[] fieldValues)
+    {
+        SetCustomAttribute(
+            (resolvedConstructor, blob) => target.SetCustomAttribute(resolvedConstructor, blob),
+            builder => target.SetCustomAttribute(builder),
+            constructor,
+            constructorArgs,
+            namedProperties,
+            propertyValues,
+            namedFields,
+            fieldValues);
+    }
+
+    internal void SetCustomAttribute(
+        ConstructorBuilder target,
+        ConstructorInfo constructor,
+        object[] constructorArgs,
+        PropertyInfo[] namedProperties,
+        object[] propertyValues,
+        FieldInfo[] namedFields,
+        object[] fieldValues)
+    {
+        SetCustomAttribute(
+            (resolvedConstructor, blob) => target.SetCustomAttribute(resolvedConstructor, blob),
+            builder => target.SetCustomAttribute(builder),
+            constructor,
+            constructorArgs,
+            namedProperties,
+            propertyValues,
+            namedFields,
+            fieldValues);
     }
 
     private bool UsePersistedCustomAttributeBlob(ConstructorInfo constructor)
@@ -287,12 +420,28 @@ public sealed class MyAssemblyGen
             && constructor is not ConstructorBuilder;
     }
 
-    private static byte[] EncodeCustomAttributeBlob(ConstructorInfo constructor, object[] constructorArgs)
+    private byte[] EncodeCustomAttributeBlob(
+        ConstructorInfo constructor,
+        object[] constructorArgs,
+        PropertyInfo[] namedProperties,
+        object[] propertyValues,
+        FieldInfo[] namedFields,
+        object[] fieldValues)
     {
         ParameterInfo[] parameters = constructor.GetParameters();
         constructorArgs ??= ArrayUtils.EmptyObjects;
+        namedProperties ??= Array.Empty<PropertyInfo>();
+        propertyValues ??= ArrayUtils.EmptyObjects;
+        namedFields ??= Array.Empty<FieldInfo>();
+        fieldValues ??= ArrayUtils.EmptyObjects;
         if (parameters.Length != constructorArgs.Length)
             throw new ArgumentException("Custom attribute constructor argument count does not match the constructor signature.", nameof(constructorArgs));
+        if (namedProperties.Length != propertyValues.Length)
+            throw new ArgumentException("Custom attribute property value count does not match the property count.", nameof(propertyValues));
+        if (namedFields.Length != fieldValues.Length)
+            throw new ArgumentException("Custom attribute field value count does not match the field count.", nameof(fieldValues));
+        if (namedProperties.Length + namedFields.Length > ushort.MaxValue)
+            throw new ArgumentOutOfRangeException(nameof(namedProperties), "Custom attributes cannot contain more than 65535 named arguments.");
 
         List<byte> blob = new()
         {
@@ -303,18 +452,86 @@ public sealed class MyAssemblyGen
         for (int i = 0; i < parameters.Length; i++)
             EncodeCustomAttributeFixedArgument(blob, parameters[i].ParameterType, constructorArgs[i]);
 
-        // Named argument count. The explicit-target AOT path currently uses this
-        // blob encoder only for constructor-only attributes.
-        blob.Add(0x00);
-        blob.Add(0x00);
+        WriteUInt16(blob, (ushort)(namedProperties.Length + namedFields.Length));
+
+        for (int i = 0; i < namedProperties.Length; i++)
+        {
+            PropertyInfo property = ResolvePersistedPropertyReference(namedProperties[i]);
+            EncodeCustomAttributeNamedArgument(blob, 0x54, property.PropertyType, property.Name, propertyValues[i]);
+        }
+
+        for (int i = 0; i < namedFields.Length; i++)
+        {
+            FieldInfo field = ResolvePersistedFieldReference(namedFields[i]);
+            EncodeCustomAttributeNamedArgument(blob, 0x53, field.FieldType, field.Name, fieldValues[i]);
+        }
+
         return blob.ToArray();
     }
 
-    private static void EncodeCustomAttributeFixedArgument(List<byte> blob, Type parameterType, object value)
+    private void EncodeCustomAttributeNamedArgument(List<byte> blob, byte kind, Type memberType, string memberName, object value)
     {
+        blob.Add(kind);
+        EncodeCustomAttributeFieldOrPropType(blob, memberType);
+        WriteSerString(blob, memberName);
+        EncodeCustomAttributeFixedArgument(blob, memberType, value);
+    }
+
+    private void EncodeCustomAttributeFieldOrPropType(List<byte> blob, Type type)
+    {
+        type = ResolvePersistedTypeReference(type);
+
+        if (type.IsEnum)
+        {
+            blob.Add(0x55);
+            WriteSerString(blob, CustomAttributeEnumTypeName(type));
+            return;
+        }
+
+        if (type.IsArray && type.GetArrayRank() == 1)
+        {
+            blob.Add(0x1D);
+            EncodeCustomAttributeFieldOrPropType(blob, type.GetElementType());
+            return;
+        }
+
+        if (type.FullName == "System.Type")
+        {
+            blob.Add(0x50);
+            return;
+        }
+
+        if (type.FullName == "System.Object")
+        {
+            blob.Add(0x51);
+            return;
+        }
+
+        if (TryGetCustomAttributeElementType(type, out byte elementType))
+        {
+            blob.Add(elementType);
+            return;
+        }
+
+        throw new NotSupportedException(
+            "Explicit-target persisted AOT custom attribute blobs do not yet support named argument type "
+            + type.FullName
+            + ".");
+    }
+
+    private void EncodeCustomAttributeFixedArgument(List<byte> blob, Type parameterType, object value)
+    {
+        parameterType = ResolvePersistedTypeReference(parameterType);
+
         if (parameterType.IsEnum)
         {
             EncodeCustomAttributeFixedArgument(blob, parameterType.GetEnumUnderlyingType(), value);
+            return;
+        }
+
+        if (parameterType.IsArray && parameterType.GetArrayRank() == 1)
+        {
+            EncodeCustomAttributeArrayArgument(blob, parameterType.GetElementType(), value);
             return;
         }
 
@@ -360,12 +577,111 @@ public sealed class MyAssemblyGen
             case "System.String":
                 WriteSerString(blob, value as string);
                 return;
+            case "System.Type":
+                WriteSerString(blob, CustomAttributeTypeValueName(value as Type));
+                return;
+            case "System.Object":
+                EncodeCustomAttributeBoxedArgument(blob, value);
+                return;
             default:
                 throw new NotSupportedException(
                     "Explicit-target persisted AOT custom attribute blobs do not yet support constructor argument type "
                     + fullName
                     + ".");
         }
+    }
+
+    private void EncodeCustomAttributeArrayArgument(List<byte> blob, Type elementType, object value)
+    {
+        if (value is null)
+        {
+            WriteUInt32(blob, uint.MaxValue);
+            return;
+        }
+
+        if (value is not Array values)
+            throw new ArgumentException("Custom attribute array argument value must be an array.", nameof(value));
+
+        WriteUInt32(blob, checked((uint)values.Length));
+        for (int i = 0; i < values.Length; i++)
+            EncodeCustomAttributeFixedArgument(blob, elementType, values.GetValue(i));
+    }
+
+    private void EncodeCustomAttributeBoxedArgument(List<byte> blob, object value)
+    {
+        if (value is null)
+        {
+            blob.Add(0x0E);
+            WriteSerString(blob, null);
+            return;
+        }
+
+        Type valueType = value is Type ? ResolvePersistedTypeReference(typeof(Type)) : ResolvePersistedTypeReference(value.GetType());
+        EncodeCustomAttributeFieldOrPropType(blob, valueType);
+        EncodeCustomAttributeFixedArgument(blob, valueType, value);
+    }
+
+    private static bool TryGetCustomAttributeElementType(Type type, out byte elementType)
+    {
+        switch (type.FullName)
+        {
+            case "System.Boolean":
+                elementType = 0x02;
+                return true;
+            case "System.Char":
+                elementType = 0x03;
+                return true;
+            case "System.SByte":
+                elementType = 0x04;
+                return true;
+            case "System.Byte":
+                elementType = 0x05;
+                return true;
+            case "System.Int16":
+                elementType = 0x06;
+                return true;
+            case "System.UInt16":
+                elementType = 0x07;
+                return true;
+            case "System.Int32":
+                elementType = 0x08;
+                return true;
+            case "System.UInt32":
+                elementType = 0x09;
+                return true;
+            case "System.Int64":
+                elementType = 0x0A;
+                return true;
+            case "System.UInt64":
+                elementType = 0x0B;
+                return true;
+            case "System.Single":
+                elementType = 0x0C;
+                return true;
+            case "System.Double":
+                elementType = 0x0D;
+                return true;
+            case "System.String":
+                elementType = 0x0E;
+                return true;
+            default:
+                elementType = 0;
+                return false;
+        }
+    }
+
+    private string CustomAttributeTypeValueName(Type type)
+    {
+        if (type is null)
+            return null;
+
+        Type resolved = ResolvePersistedTypeReference(type);
+        return resolved.AssemblyQualifiedName ?? resolved.FullName;
+    }
+
+    private static string CustomAttributeEnumTypeName(Type type)
+    {
+        return type.FullName ?? type.Name;
     }
 
     private static void WriteUInt16(List<byte> blob, ushort value)
@@ -778,6 +1094,14 @@ public sealed class MyAssemblyGen
         return (FieldInfo)ResolvePersistedMemberReference(field, ResolvePersistedFieldReferenceUncached);
     }
 
+    private PropertyInfo ResolvePersistedPropertyReference(PropertyInfo property)
+    {
+        if (!_isPersistable || _persistedMetadataLoadContext is null || property is null)
+            return property;
+
+        return (PropertyInfo)ResolvePersistedMemberReference(property, ResolvePersistedPropertyReferenceUncached);
+    }
+
     private MemberInfo ResolvePersistedMemberReference(MemberInfo member, Func<MemberInfo, MemberInfo> resolveUncached)
     {
         lock (_persistedMemberReferences)
@@ -945,6 +1269,22 @@ public sealed class MyAssemblyGen
                 && candidate.IsStatic == field.IsStatic
                 && TypeReferencesMatch(ResolvePersistedTypeReferenceCore(field.FieldType), candidate.FieldType))
             ?? field;
+    }
+
+    private MemberInfo ResolvePersistedPropertyReferenceUncached(MemberInfo member)
+    {
+        PropertyInfo property = (PropertyInfo)member;
+        Type declaringType = ResolvePersistedTypeReferenceCore(property.DeclaringType);
+        if (ReferenceEquals(declaringType, property.DeclaringType))
+            return property;
+
+        return declaringType
+            .GetProperties(AllMemberBindings)
+            .FirstOrDefault(candidate =>
+                candidate.Name == property.Name
+                && TypeReferencesMatch(ResolvePersistedTypeReferenceCore(property.PropertyType), candidate.PropertyType)
+                && ParametersMatch(property.GetIndexParameters(), candidate.GetIndexParameters()))
+            ?? property;
     }
 
     private static readonly BindingFlags AllMemberBindings =

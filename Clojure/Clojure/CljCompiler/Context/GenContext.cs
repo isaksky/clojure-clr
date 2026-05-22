@@ -567,17 +567,133 @@ namespace clojure.lang.CljCompiler.Context
             return new CustomAttributeBuilder(constructor, constructorArgs);
         }
 
+        public CustomAttributeBuilder CreateCustomAttribute(
+            ConstructorInfo constructor,
+            object[] constructorArgs,
+            PropertyInfo[] namedProperties,
+            object[] propertyValues,
+            FieldInfo[] namedFields,
+            object[] fieldValues)
+        {
+            return new CustomAttributeBuilder(
+                constructor,
+                constructorArgs ?? Array.Empty<object>(),
+                namedProperties ?? Array.Empty<PropertyInfo>(),
+                propertyValues ?? Array.Empty<object>(),
+                namedFields ?? Array.Empty<FieldInfo>(),
+                fieldValues ?? Array.Empty<object>());
+        }
+
         public void SetCustomAttribute(TypeBuilder typeBuilder, ConstructorInfo constructor, object[] constructorArgs)
+        {
+            SetCustomAttribute(
+                typeBuilder,
+                constructor,
+                constructorArgs,
+                Array.Empty<PropertyInfo>(),
+                Array.Empty<object>(),
+                Array.Empty<FieldInfo>(),
+                Array.Empty<object>());
+        }
+
+        public void SetCustomAttribute(
+            TypeBuilder typeBuilder,
+            ConstructorInfo constructor,
+            object[] constructorArgs,
+            PropertyInfo[] namedProperties,
+            object[] propertyValues,
+            FieldInfo[] namedFields,
+            object[] fieldValues)
         {
 #if NET9_0_OR_GREATER
             if (CanPersist)
             {
-                _assyGen.SetCustomAttribute(typeBuilder, constructor, constructorArgs);
+                _assyGen.SetCustomAttribute(typeBuilder, constructor, constructorArgs, namedProperties, propertyValues, namedFields, fieldValues);
                 return;
             }
 #endif
 
-            typeBuilder.SetCustomAttribute(CreateCustomAttribute(constructor, constructorArgs));
+            typeBuilder.SetCustomAttribute(CreateCustomAttribute(constructor, constructorArgs, namedProperties, propertyValues, namedFields, fieldValues));
+        }
+
+        public void SetCustomAttribute(
+            FieldBuilder fieldBuilder,
+            ConstructorInfo constructor,
+            object[] constructorArgs,
+            PropertyInfo[] namedProperties,
+            object[] propertyValues,
+            FieldInfo[] namedFields,
+            object[] fieldValues)
+        {
+#if NET9_0_OR_GREATER
+            if (CanPersist)
+            {
+                _assyGen.SetCustomAttribute(fieldBuilder, constructor, constructorArgs, namedProperties, propertyValues, namedFields, fieldValues);
+                return;
+            }
+#endif
+
+            fieldBuilder.SetCustomAttribute(CreateCustomAttribute(constructor, constructorArgs, namedProperties, propertyValues, namedFields, fieldValues));
+        }
+
+        public void SetCustomAttribute(
+            MethodBuilder methodBuilder,
+            ConstructorInfo constructor,
+            object[] constructorArgs,
+            PropertyInfo[] namedProperties,
+            object[] propertyValues,
+            FieldInfo[] namedFields,
+            object[] fieldValues)
+        {
+#if NET9_0_OR_GREATER
+            if (CanPersist)
+            {
+                _assyGen.SetCustomAttribute(methodBuilder, constructor, constructorArgs, namedProperties, propertyValues, namedFields, fieldValues);
+                return;
+            }
+#endif
+
+            methodBuilder.SetCustomAttribute(CreateCustomAttribute(constructor, constructorArgs, namedProperties, propertyValues, namedFields, fieldValues));
+        }
+
+        public void SetCustomAttribute(
+            ParameterBuilder parameterBuilder,
+            ConstructorInfo constructor,
+            object[] constructorArgs,
+            PropertyInfo[] namedProperties,
+            object[] propertyValues,
+            FieldInfo[] namedFields,
+            object[] fieldValues)
+        {
+#if NET9_0_OR_GREATER
+            if (CanPersist)
+            {
+                _assyGen.SetCustomAttribute(parameterBuilder, constructor, constructorArgs, namedProperties, propertyValues, namedFields, fieldValues);
+                return;
+            }
+#endif
+
+            parameterBuilder.SetCustomAttribute(CreateCustomAttribute(constructor, constructorArgs, namedProperties, propertyValues, namedFields, fieldValues));
+        }
+
+        public void SetCustomAttribute(
+            ConstructorBuilder constructorBuilder,
+            ConstructorInfo constructor,
+            object[] constructorArgs,
+            PropertyInfo[] namedProperties,
+            object[] propertyValues,
+            FieldInfo[] namedFields,
+            object[] fieldValues)
+        {
+#if NET9_0_OR_GREATER
+            if (CanPersist)
+            {
+                _assyGen.SetCustomAttribute(constructorBuilder, constructor, constructorArgs, namedProperties, propertyValues, namedFields, fieldValues);
+                return;
+            }
+#endif
+
+            constructorBuilder.SetCustomAttribute(CreateCustomAttribute(constructor, constructorArgs, namedProperties, propertyValues, namedFields, fieldValues));
         }
 
         private string CurrentGeneratedSourcePath()
