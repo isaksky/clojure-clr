@@ -25,7 +25,7 @@ Clojure -> .../Clojure/bin/Debug/net9.0/Clojure.dll
 Build succeeded.
 ```
 
-The compile driver also builds, but its custom post-build AOT step fails on this Unix host:
+Before the compile-driver post-build fix, the custom post-build AOT step failed on this Unix host:
 
 ```sh
 dotnet build Clojure/Clojure.Compile/Clojure.Compile.csproj -f net9.0 -p:TargetFrameworks=net9.0
@@ -50,6 +50,21 @@ Result:
 ```text
 Runtime: .NET 10.0.5
 CLR Version: 10.0.5
+```
+
+After updating the `net9.0+` post-build command to run `dotnet "$(TargetPath)"`, the narrowed normal build completes and runs the baseline standard-namespace AOT step:
+
+```sh
+DOTNET_ROLL_FORWARD=Major dotnet build Clojure/Clojure.Compile/Clojure.Compile.csproj -f net9.0 -p:TargetFrameworks=net9.0
+```
+
+Key output:
+
+```text
+TargetCmdLine = 'dotnet ".../Clojure.Compile.dll"'
+Core: Compiling clojure.core to . -- 5727 milliseconds.
+Core: Compiling clojure.repl.deps to . -- 56 milliseconds.
+Build succeeded.
 ```
 
 ## Minimal Source
@@ -206,4 +221,4 @@ All Classes and Methods in .../sample.ns.clj.dll Verified.
 
 ## Baseline Conclusion
 
-The smallest namespace requested by the plan works on this machine through the current `PersistedAssemblyBuilder` path when run on .NET 10 with `net9.0` roll-forward. The first observed blocker is not persisted IL generation; it is the `Clojure.Compile.csproj` Unix post-build command using `mono` for modern .NET TFMs. The first compiler-architecture risk remains generated-type identity and cross-reference handling for forms beyond this simple namespace.
+The smallest namespace requested by the plan works on this machine through the current `PersistedAssemblyBuilder` path when run on .NET 10 with `net9.0` roll-forward. The first observed blocker was the `Clojure.Compile.csproj` Unix post-build command using `mono` for modern .NET TFMs; it is resolved by invoking `dotnet "$(TargetPath)"` for `net9.0+`. The first compiler-architecture risk remains generated-type identity and cross-reference handling for forms beyond this simple namespace.
