@@ -546,7 +546,6 @@ namespace clojure.lang
         {
             if (INIT) { return; } else { INIT = true; }
 
-
             // load spec
             var optionsMapToUse = (Associative)Compiler.CompilerOptionsVar.deref() ?? PersistentHashMap.EMPTY;
             Var.pushThreadBindings(RT.map(Compiler.CompilerOptionsVar, optionsMapToUse.assoc(Compiler.DirectLinkingKeyword, true)));
@@ -587,17 +586,34 @@ namespace clojure.lang
                 MaybeLoadCljScript("user.cljc");
                 MaybeLoadCljScript("user.clj");
 
-                // start socket servers
                 Var require = var("clojure.core", "require");
-                Symbol SERVER = Symbol.intern("clojure.core.server");
-                require.invoke(SERVER);
-                Var start_servers = var("clojure.core.server", "start-servers");
-                start_servers.invoke(Environment.GetEnvironmentVariables());
+                require.invoke(Symbol.intern("clojure.main"));
+
+                // start socket servers only when startup configuration exists
+                IDictionary environmentVariables = Environment.GetEnvironmentVariables();
+                if (HasServerConfiguration(environmentVariables))
+                {
+                    Symbol SERVER = Symbol.intern("clojure.core.server");
+                    require.invoke(SERVER);
+                    Var start_servers = var("clojure.core.server", "start-servers");
+                    start_servers.invoke(environmentVariables);
+                }
             }
             finally
             {
                 Var.popThreadBindings();
             }
+        }
+
+        private static bool HasServerConfiguration(IDictionary environmentVariables)
+        {
+            foreach (DictionaryEntry entry in environmentVariables)
+            {
+                if (entry.Key is string key && key.StartsWith("clojure.server.", StringComparison.Ordinal))
+                    return true;
+            }
+
+            return false;
         }
 
         #endregion

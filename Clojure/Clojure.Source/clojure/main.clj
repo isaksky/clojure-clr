@@ -12,7 +12,6 @@
        :author "Stephen C. Gilardi and Rich Hickey"}
   clojure.main
   (:refer-clojure :exclude [with-bindings])
-  (:require [clojure.spec.alpha :as spec])
   (:import (System.IO StringReader FileInfo FileStream Path StreamWriter)                ;;; java.io StringReader BufferedWriter  FileWriter
                                                                                                ;;; (java.nio.file Files)
                                                                                                ;;; (java.nio.file.attribute FileAttribute)                                                        
@@ -112,9 +111,8 @@
 			 *default-data-reader-fn* *default-data-reader-fn*
              *compile-path* (or (Environment/GetEnvironmentVariable "CLOJURE_COMPILE_PATH") ".")  ;;;(System/getProperty "clojure.compile.path" "classes")
              *command-line-args* *command-line-args*
-			 *unchecked-math* *unchecked-math*
+             *unchecked-math* *unchecked-math*
              *assert* *assert*
-             clojure.spec.alpha/*explain-out* clojure.spec.alpha/*explain-out*
 			 *1 nil
              *2 nil
              *3 nil
@@ -287,6 +285,18 @@
             problems (assoc :clojure.error/spec data))))
       :clojure.error/phase phase)))
 
+(defn- explain-spec
+  [spec-data]
+  (let [explain-out (requiring-resolve 'clojure.spec.alpha/explain-out)
+        explain-out-var (requiring-resolve 'clojure.spec.alpha/*explain-out*)
+        explain-printer (deref (requiring-resolve 'clojure.spec.alpha/explain-printer))]
+    (with-out-str
+      (explain-out
+        (if (= (deref explain-out-var) explain-printer)
+          (update spec-data :clojure.spec.alpha/problems
+                  (fn [probs] (map #(dissoc % :in) probs)))
+          spec-data)))))
+
 (defn ex-str
   "Returns a string from exception data, as produced by ex-triage.
   The first line summarizes the exception phase and location.
@@ -309,12 +319,7 @@
               (if symbol (str symbol " ") "")
               loc
               (if spec
-                (with-out-str
-                  (spec/explain-out
-                    (if (= spec/*explain-out* spec/explain-printer)
-                      (update spec :clojure.spec.alpha/problems
-                              (fn [probs] (map #(dissoc % :in) probs)))
-                      spec)))
+                (explain-spec spec)
                 (format "%s%n" cause)))
 
       :macroexpansion
@@ -349,12 +354,7 @@
         (format "Execution error - invalid arguments to %s at (%s).%n%s"
                 symbol
                 loc
-                (with-out-str
-                  (spec/explain-out
-                    (if (= spec/*explain-out* spec/explain-printer)
-                      (update spec :clojure.spec.alpha/problems
-                              (fn [probs] (map #(dissoc % :in) probs)))
-                      spec))))
+                (explain-spec spec))
         (format "Execution error%s at %s(%s).%n%s%n"
                 cause-type
                 (if symbol (str symbol " ") "")
@@ -696,4 +696,3 @@ java -cp clojure.jar clojure.main -i init.clj script.clj args...")
          (Environment/Exit 1))))                                                                                                           ;;; System/exit
    (finally 
      (flush))))
-
