@@ -17,7 +17,7 @@ The paired-generation path now covers the original `def`/`defn`/top-level `let` 
 The remaining open work is feature-specific rather than a general backend failure:
 
 - Dynamic host interop call-site helpers still need backend-aware pairing (`clojure-clr-pop`).
-- `gen-class` and `proxy` still need policy/support work before they can be part of persisted namespace AOT (`clojure-clr-7pi` tracks the immediate test-policy issue for `gen-class`).
+- `deftype*`/`reify*` and `gen-class`/`proxy` still need policy/support work before they can be part of persisted namespace AOT (`clojure-clr-p2d` and `clojure-clr-qqr`).
 - Cross-TFM reference assembly selection remains intentionally deferred behind the same-runtime policy (`clojure-clr-rjb`).
 - Portable debug symbols remain disabled until PersistedAssemblyBuilder output is verified with PDB/debug directory coverage (`clojure-clr-zkm`).
 
@@ -74,5 +74,5 @@ ILRepack, Fody, and coverlet are useful once a Cecil backend exists:
 - Full Cecil backend.
 - Cross-target reference assembly selection through `MetadataLoadContext` (`clojure-clr-rjb`).
 - Rich portable PDB/source-link support (`clojure-clr-zkm`).
-- `deftype*`, `reify*`, `gen-class`, and `proxy`.
+- `deftype*`, `reify*`, `gen-class`, and `proxy` (`clojure-clr-p2d` and `clojure-clr-qqr`).
 - Async method emission beyond current conditional support.
