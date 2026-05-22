@@ -4,6 +4,8 @@
 
 Keep `CljILGen` and Reflection.Emit for the first implementation path, but stop passing raw generated `Type`, `FieldInfo`, `MethodInfo`, and `ConstructorInfo` across backend boundaries. Introduce a small generated-artifact identity layer first. A Cecil backend can later implement the same logical contract.
 
+The first code implementation keeps the existing two-analysis behavior: persisted compilation analyzes and emits the saved assembly, then separate eval re-analyzes the form so progressive load/eval effects happen in runnable code. `GeneratedArtifactRegistry` therefore assigns ordinals per backend pass. If the persisted and eval passes declare the same logical artifacts in the same order, they resolve to the same logical `GeneratedTypeId`/`GeneratedMemberId` while retaining separate backend-local handles.
+
 ## Core Data Structures
 
 ```csharp

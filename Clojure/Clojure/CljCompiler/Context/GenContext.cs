@@ -73,6 +73,15 @@ namespace clojure.lang.CljCompiler.Context
         TypeBuilder _tb;
         public TypeBuilder TB { get { return _tb; } }
 
+        readonly string _sourceName;
+        readonly GeneratedArtifactRegistry _generatedArtifacts = new();
+        public GeneratedArtifactRegistry GeneratedArtifacts
+        {
+            get { return _generatedArtifacts; }
+        }
+
+        public GeneratedArtifactBackend ArtifactBackend { get; }
+
 
         public string Path { get; set; }
 
@@ -157,6 +166,10 @@ namespace clojure.lang.CljCompiler.Context
         private GenContext(AssemblyType assemblyType, string directory, AssemblyName aname, string extension, bool createDynInitHelper, string sourceName)
         {
             // TODO: Make this settable from a *debug* flag
+            _sourceName = sourceName;
+            ArtifactBackend = assemblyType == AssemblyType.Internal
+                ? GeneratedArtifactBackend.Eval
+                : GeneratedArtifactBackend.Persisted;
 
 #if DEBUG
             _isDebuggable = true;
@@ -247,6 +260,41 @@ namespace clojure.lang.CljCompiler.Context
             GenContext newContext = Clone();
             newContext._tb = tb;
             return newContext;
+        }
+
+        public GeneratedTypeRecord RegisterGeneratedType(string logicalName, string runtimeName, TypeBuilder builder)
+        {
+            return _generatedArtifacts.RegisterTypeBuilder(
+                ArtifactBackend,
+                CurrentGeneratedSourcePath(),
+                logicalName,
+                runtimeName,
+                builder);
+        }
+
+        public void RegisterGeneratedTypeCreated(GeneratedTypeRecord record, Type type)
+        {
+            if (record is null)
+                return;
+
+            _generatedArtifacts.RegisterCreatedType(ArtifactBackend, record.Id, type);
+        }
+
+        public GeneratedMemberRecord RegisterGeneratedMember(
+            GeneratedTypeRecord owner,
+            GeneratedMemberKind kind,
+            string logicalName,
+            MemberInfo member)
+        {
+            if (owner is null || member is null)
+                return null;
+
+            return _generatedArtifacts.RegisterMember(ArtifactBackend, owner.Id, kind, logicalName, member);
+        }
+
+        private string CurrentGeneratedSourcePath()
+        {
+            return Compiler.SourcePathVar.deref() as string ?? _sourceName ?? Path ?? string.Empty;
         }
 
         #endregion

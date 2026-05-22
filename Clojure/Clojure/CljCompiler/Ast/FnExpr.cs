@@ -300,7 +300,10 @@ namespace clojure.lang.CljCompiler.Ast
             }
 
             if (IsVariadic)
-                EmitGetRequiredArityMethod(TypeBuilder, _variadicMethod.RequiredArity);
+                RegisterGeneratedMember(
+                    GeneratedMemberKind.Method,
+                    "getRequiredArity",
+                    EmitGetRequiredArityMethod(TypeBuilder, _variadicMethod.RequiredArity));
 
             List<int> supportedArities = [];
             for (ISeq s = RT.seq(Methods); s != null; s = s.next())
@@ -309,10 +312,13 @@ namespace clojure.lang.CljCompiler.Ast
                 supportedArities.Add(method.NumParams);
             }
 
-            EmitHasArityMethod(TypeBuilder, supportedArities, IsVariadic, IsVariadic ? _variadicMethod.RequiredArity : 0);
+            RegisterGeneratedMember(
+                GeneratedMemberKind.Method,
+                "HasArity",
+                EmitHasArityMethod(TypeBuilder, supportedArities, IsVariadic, IsVariadic ? _variadicMethod.RequiredArity : 0));
         }
 
-        static void EmitGetRequiredArityMethod(TypeBuilder tb, int requiredArity)
+        static MethodBuilder EmitGetRequiredArityMethod(TypeBuilder tb, int requiredArity)
         {
             MethodBuilder mb = tb.DefineMethod(
                 "getRequiredArity",
@@ -323,6 +329,7 @@ namespace clojure.lang.CljCompiler.Ast
             CljILGen gen = new(mb.GetILGenerator());
             gen.EmitInt(requiredArity);
             gen.Emit(OpCodes.Ret);
+            return mb;
         }
 
         #endregion

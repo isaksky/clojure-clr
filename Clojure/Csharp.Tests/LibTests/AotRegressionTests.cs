@@ -7,6 +7,7 @@ using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
 using clojure.lang;
+using clojure.lang.CljCompiler.Context;
 using NUnit.Framework;
 using Compiler = clojure.lang.Compiler;
 
@@ -94,6 +95,25 @@ namespace Clojure.Tests.LibTests
 
             Assert.That(File.Exists(sample.AssemblyPath), Is.True, "AOT compilation should still persist the namespace DLL.");
             Assert.That(Var.find(Symbol.intern(sample.NamespaceName, "invoked")).deref(), Is.EqualTo(42));
+        }
+
+        [Test]
+        public void MinimalNamespaceAotRecordsGeneratedArtifactIdentities()
+        {
+            using AotSample sample = AotSample.Create();
+            GenContext context = CompileSampleWithExplicitContext(sample);
+
+            GeneratedTypeRecord initType = context.GeneratedArtifacts.Types.SingleOrDefault(
+                t => t.GetRuntimeName(GeneratedArtifactBackend.Persisted) == sample.InitTypeName);
+            GeneratedTypeRecord fnType = context.GeneratedArtifacts.Types.SingleOrDefault(
+                t => t.GetRuntimeName(GeneratedArtifactBackend.Persisted) == sample.NamespaceName + "$inc_answer");
+
+            Assert.That(initType, Is.Not.Null, "Namespace init type should be registered.");
+            Assert.That(fnType, Is.Not.Null, "Generated defn function type should be registered.");
+            Assert.That(initType.Members.Values.Any(IsPersistedInitializeMethod), Is.True,
+                "Namespace init type should record Initialize().");
+            Assert.That(fnType.Members.Values.Any(IsPersistedInvokeStaticMethod), Is.True,
+                "Generated defn function type should record invokeStatic().");
         }
 
         [Test]
@@ -192,6 +212,68 @@ namespace Clojure.Tests.LibTests
             }
         }
 
+        private static GenContext CompileSampleWithExplicitContext(AotSample sample, bool directLinking = false)
+        {
+            string previousLoadPath = Environment.GetEnvironmentVariable(RT.ClojureLoadPathString);
+            string testLoadPath = string.IsNullOrEmpty(previousLoadPath)
+                ? sample.SourceRoot
+                : sample.SourceRoot + Path.PathSeparator + previousLoadPath;
+
+            Var compilerOptionsVar = Var.find(Symbol.intern("clojure.core", "*compiler-options*"));
+            object compilerOptions = RT.assoc(
+                compilerOptionsVar.deref(),
+                Keyword.intern(null, "direct-linking"),
+                directLinking);
+
+            try
+            {
+                Environment.SetEnvironmentVariable(RT.ClojureLoadPathString, testLoadPath);
+                Var.pushThreadBindings(RT.map(
+                    Compiler.CompilePathVar, sample.CompilePath,
+                    compilerOptionsVar, compilerOptions));
+
+                try
+                {
+                    GenContext context = GenContext.CreateWithExternalAssembly(
+                        sample.SourceFileName,
+                        sample.RelativePath,
+                        ".dll",
+                        true);
+
+                    using TextReader reader = File.OpenText(sample.SourcePath);
+                    Compiler.Compile(
+                        context,
+                        reader,
+                        Path.GetDirectoryName(sample.SourcePath),
+                        sample.SourceFileName,
+                        sample.RelativePath);
+                    return context;
+                }
+                finally
+                {
+                    Var.popThreadBindings();
+                }
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable(RT.ClojureLoadPathString, previousLoadPath);
+            }
+        }
+
+        private static bool IsPersistedInitializeMethod(GeneratedMemberRecord member)
+        {
+            return member.Id.Kind == GeneratedMemberKind.Method
+                && member.Id.LogicalName == "Initialize"
+                && member.PersistedMember is MethodInfo;
+        }
+
+        private static bool IsPersistedInvokeStaticMethod(GeneratedMemberRecord member)
+        {
+            return member.Id.Kind == GeneratedMemberKind.Method
+                && member.Id.LogicalName == "invokeStatic"
+                && member.PersistedMember is MethodInfo;
+        }
+
         private static bool IsEvalOrInternalDynamicReference(AssemblyName reference)
         {
             string name = reference.Name ?? string.Empty;
@@ -265,13 +347,19 @@ namespace Clojure.Tests.LibTests
                 string sourceRoot,
                 string compilePath,
                 string namespaceName,
-                string assemblyPath)
+                string assemblyPath,
+                string sourcePath,
+                string sourceFileName,
+                string relativePath)
             {
                 WorkDir = workDir;
                 SourceRoot = sourceRoot;
                 CompilePath = compilePath;
                 NamespaceName = namespaceName;
                 AssemblyPath = assemblyPath;
+                SourcePath = sourcePath;
+                SourceFileName = sourceFileName;
+                RelativePath = relativePath;
             }
 
             public string WorkDir { get; }
@@ -279,6 +367,9 @@ namespace Clojure.Tests.LibTests
             public string CompilePath { get; }
             public string NamespaceName { get; }
             public string AssemblyPath { get; }
+            public string SourcePath { get; }
+            public string SourceFileName { get; }
+            public string RelativePath { get; }
             public string InitTypeName => "__Init__$" + NamespaceName.Replace(".", "$");
 
             public static AotSample Create()
@@ -289,14 +380,24 @@ namespace Clojure.Tests.LibTests
                 string compilePath = Path.Combine(workDir, "out");
                 string leafName = "smoke" + Guid.NewGuid().ToString("N");
                 string namespaceName = "aot." + leafName;
+                string relativePath = Path.Combine("aot", leafName + ".clj");
                 string sourcePath = Path.Combine(sourceDir, leafName + ".clj");
+                string sourceFileName = leafName + ".clj";
                 string assemblyPath = Path.Combine(compilePath, namespaceName + ".clj.dll");
 
                 Directory.CreateDirectory(sourceDir);
                 Directory.CreateDirectory(compilePath);
                 File.WriteAllText(sourcePath, $"(ns {namespaceName})\n{SampleBody}");
 
-                return new AotSample(workDir, sourceRoot, compilePath, namespaceName, assemblyPath);
+                return new AotSample(
+                    workDir,
+                    sourceRoot,
+                    compilePath,
+                    namespaceName,
+                    assemblyPath,
+                    sourcePath,
+                    sourceFileName,
+                    relativePath);
             }
 
             public void DeleteSourceTree()

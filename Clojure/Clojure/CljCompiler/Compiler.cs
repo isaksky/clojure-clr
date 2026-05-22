@@ -1765,11 +1765,18 @@ namespace clojure.lang
             objx.InternalName = internalName + "__init";
 
             TypeBuilder initTB = context.AssemblyGen.DefinePublicType(InitClassName(internalName), typeof(object), true);
+            objx.GeneratedType = context.GeneratedArtifacts.RegisterTypeBuilder(
+                context.ArtifactBackend,
+                sourcePath,
+                objx.InternalName,
+                InitClassName(internalName),
+                initTB);
             context = context.WithTypeBuilder(initTB);
             objx.TypeBuilder = initTB;
 
             // static load method
             MethodBuilder initMB = initTB.DefineMethod("Initialize", MethodAttributes.Public | MethodAttributes.Static, typeof(void), Type.EmptyTypes);
+            context.RegisterGeneratedMember(objx.GeneratedType, GeneratedMemberKind.Method, "Initialize", initMB);
             CljILGen ilg = new(initMB.GetILGenerator());
 
             //// Print a little message, for debugging purposes
@@ -1820,6 +1827,7 @@ namespace clojure.lang
 
                 // Static init for constants, keywords, vars
                 ConstructorBuilder cb = initTB.DefineConstructor(MethodAttributes.Static, CallingConventions.Standard, Type.EmptyTypes);
+                objx.RegisterGeneratedMember(GeneratedMemberKind.StaticConstructor, ".cctor", cb);
                 ILGenerator cbGen = cb.GetILGenerator();
 
                 cbGen.BeginExceptionBlock();
@@ -1838,7 +1846,8 @@ namespace clojure.lang
                                            [String.Format("{{:clojure-namespace {0}}}", CurrentNamespace)]);
                 initTB.SetCustomAttribute(descAttrBuilder);
 
-                initTB.CreateType();
+                Type initType = initTB.CreateType();
+                context.RegisterGeneratedTypeCreated(objx.GeneratedType, initType);
             }
             catch (LispReader.ReaderException e)
             {
