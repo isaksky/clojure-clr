@@ -5,6 +5,8 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -259,6 +261,34 @@ namespace Clojure.Tests.LibTests
             Assert.That(context.UsesSameRuntimePersistedCoreAssembly, Is.True,
                 "The first modern persisted AOT path intentionally targets the executing runtime.");
             Assert.That(context.PersistedCoreAssembly, Is.SameAs(typeof(object).Assembly));
+        }
+
+        [Test]
+        public void ModernPersistedAotCanSelectExplicitReferenceAssemblyTargetFramework()
+        {
+            string targetFramework = CurrentTestTargetFramework();
+            string referenceAssemblyDirectory = FindReferenceAssemblyDirectory(targetFramework);
+            if (referenceAssemblyDirectory is null)
+                Assert.Ignore($"No Microsoft.NETCore.App.Ref reference assemblies are installed for {targetFramework}.");
+
+            using AotSample sample = AotSample.Create();
+            GenContext context = CompileSampleWithExplicitContext(
+                sample,
+                targetFramework: targetFramework,
+                referenceAssemblyPath: referenceAssemblyDirectory);
+
+            Assert.That(context.UsesSameRuntimePersistedCoreAssembly, Is.False,
+                "Explicit persisted AOT target selection should use reference assemblies, not the compiler runtime core assembly.");
+            Assert.That(context.PersistedCoreAssembly.GetName().Name, Is.EqualTo("System.Runtime"));
+            Assert.That(context.PersistedTargetFramework, Is.EqualTo(targetFramework));
+            Assert.That(context.PersistedReferenceAssemblyDirectory, Is.EqualTo(Path.GetFullPath(referenceAssemblyDirectory)));
+            Assert.That(VarValue(sample, "invoked"), Is.EqualTo(42));
+
+            SaveExplicitContext(context);
+
+            Assembly assembly = Assembly.LoadFrom(sample.AssemblyPath);
+            Assert.That(assembly.GetReferencedAssemblies().Any(IsEvalOrInternalDynamicReference), Is.False,
+                "Explicit target selection should still avoid transient eval/internal dynamic assembly references.");
         }
 
         [Test]
@@ -586,10 +616,7 @@ namespace Clojure.Tests.LibTests
                 : sample.SourceRoot + Path.PathSeparator + previousLoadPath;
 
             Var compilerOptionsVar = Var.find(Symbol.intern("clojure.core", "*compiler-options*"));
-            object compilerOptions = RT.assoc(
-                compilerOptionsVar.deref(),
-                Keyword.intern(null, "direct-linking"),
-                directLinking);
+            object compilerOptions = CompilerOptions(directLinking);
 
             try
             {
@@ -613,7 +640,11 @@ namespace Clojure.Tests.LibTests
             }
         }
 
-        private static GenContext CompileSampleWithExplicitContext(AotSample sample, bool directLinking = false)
+        private static GenContext CompileSampleWithExplicitContext(
+            AotSample sample,
+            bool directLinking = false,
+            string targetFramework = null,
+            string referenceAssemblyPath = null)
         {
             string previousLoadPath = Environment.GetEnvironmentVariable(RT.ClojureLoadPathString);
             string testLoadPath = string.IsNullOrEmpty(previousLoadPath)
@@ -621,10 +652,7 @@ namespace Clojure.Tests.LibTests
                 : sample.SourceRoot + Path.PathSeparator + previousLoadPath;
 
             Var compilerOptionsVar = Var.find(Symbol.intern("clojure.core", "*compiler-options*"));
-            object compilerOptions = RT.assoc(
-                compilerOptionsVar.deref(),
-                Keyword.intern(null, "direct-linking"),
-                directLinking);
+            object compilerOptions = CompilerOptions(directLinking, targetFramework, referenceAssemblyPath);
 
             try
             {
@@ -670,10 +698,7 @@ namespace Clojure.Tests.LibTests
                 : sourceRoot + Path.PathSeparator + previousLoadPath;
 
             Var compilerOptionsVar = Var.find(Symbol.intern("clojure.core", "*compiler-options*"));
-            object compilerOptions = RT.assoc(
-                compilerOptionsVar.deref(),
-                Keyword.intern(null, "direct-linking"),
-                false);
+            object compilerOptions = CompilerOptions(directLinking: false);
 
             try
             {
@@ -696,6 +721,126 @@ namespace Clojure.Tests.LibTests
             {
                 Environment.SetEnvironmentVariable(RT.ClojureLoadPathString, previousLoadPath);
             }
+        }
+
+        private static object CompilerOptions(
+            bool directLinking,
+            string targetFramework = null,
+            string referenceAssemblyPath = null)
+        {
+            Var compilerOptionsVar = Var.find(Symbol.intern("clojure.core", "*compiler-options*"));
+            object compilerOptions = RT.assoc(
+                compilerOptionsVar.deref(),
+                Keyword.intern(null, "direct-linking"),
+                directLinking);
+
+            if (!string.IsNullOrWhiteSpace(targetFramework))
+            {
+                compilerOptions = RT.assoc(
+                    compilerOptions,
+                    Keyword.intern(null, "aot-target-framework"),
+                    targetFramework);
+            }
+
+            if (!string.IsNullOrWhiteSpace(referenceAssemblyPath))
+            {
+                compilerOptions = RT.assoc(
+                    compilerOptions,
+                    Keyword.intern(null, "aot-reference-assembly-path"),
+                    referenceAssemblyPath);
+            }
+
+            return compilerOptions;
+        }
+
+        private static string CurrentTestTargetFramework()
+        {
+            string targetFramework = new DirectoryInfo(TestContext.CurrentContext.TestDirectory).Name;
+            Match match = Regex.Match(targetFramework, @"^net(?<version>\d+\.\d+)");
+            if (match.Success)
+                return "net" + match.Groups["version"].Value;
+
+            if (!string.IsNullOrWhiteSpace(AppContext.TargetFrameworkName))
+            {
+                FrameworkName frameworkName = new(AppContext.TargetFrameworkName);
+                if (frameworkName.Identifier.Equals(".NETCoreApp", StringComparison.OrdinalIgnoreCase))
+                    return "net" + frameworkName.Version.Major + "." + frameworkName.Version.Minor;
+            }
+
+            throw new InvalidOperationException("Could not determine the current test target framework.");
+        }
+
+        private static string FindReferenceAssemblyDirectory(string targetFramework)
+        {
+            string bestDirectory = null;
+            string bestVersion = null;
+
+            foreach (string dotnetRoot in DotNetRootCandidates().Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                string packRoot = Path.Combine(dotnetRoot, "packs", "Microsoft.NETCore.App.Ref");
+                if (!Directory.Exists(packRoot))
+                    continue;
+
+                foreach (string versionDirectory in Directory.GetDirectories(packRoot))
+                {
+                    string candidate = Path.Combine(versionDirectory, "ref", targetFramework);
+                    if (!File.Exists(Path.Combine(candidate, "System.Runtime.dll")))
+                        continue;
+
+                    string version = new DirectoryInfo(versionDirectory).Name;
+                    if (bestDirectory is null || ComparePackVersions(version, bestVersion) > 0)
+                    {
+                        bestDirectory = candidate;
+                        bestVersion = version;
+                    }
+                }
+            }
+
+            return bestDirectory;
+        }
+
+        private static string[] DotNetRootCandidates()
+        {
+            string runtimeDirectory = RuntimeEnvironment.GetRuntimeDirectory();
+            string runtimeDotNetRoot = null;
+            if (!string.IsNullOrWhiteSpace(runtimeDirectory))
+            {
+                DirectoryInfo runtimeVersionDirectory = new(runtimeDirectory);
+                runtimeDotNetRoot = runtimeVersionDirectory.Parent?.Parent?.Parent?.FullName;
+            }
+
+            return new[]
+            {
+                runtimeDotNetRoot,
+                Environment.GetEnvironmentVariable("DOTNET_ROOT"),
+                Environment.GetEnvironmentVariable("DOTNET_ROOT_ARM64"),
+                Environment.GetEnvironmentVariable("DOTNET_ROOT_X64"),
+                Environment.GetEnvironmentVariable("DOTNET_ROOT_X86")
+            }.Where(path => !string.IsNullOrWhiteSpace(path)).ToArray();
+        }
+
+        private static int ComparePackVersions(string left, string right)
+        {
+            Version leftVersion = ParsePackVersion(left);
+            Version rightVersion = ParsePackVersion(right);
+            int versionComparison = leftVersion.CompareTo(rightVersion);
+            return versionComparison != 0
+                ? versionComparison
+                : string.Compare(left, right, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static Version ParsePackVersion(string version)
+        {
+            if (string.IsNullOrWhiteSpace(version))
+                return new Version(0, 0);
+
+            int suffixIndex = version.IndexOf('-');
+            if (suffixIndex >= 0)
+                version = version.Substring(0, suffixIndex);
+
+            return Version.TryParse(version, out Version parsed)
+                ? parsed
+                : new Version(0, 0);
         }
 
         private static bool IsPersistedInitializeMethod(GeneratedMemberRecord member)

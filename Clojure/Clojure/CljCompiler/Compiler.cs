@@ -155,6 +155,8 @@ namespace clojure.lang
 
         internal static readonly Keyword DirectLinkingKeyword = Keyword.intern("direct-linking");
         internal static readonly Keyword ElideMetaKeyword = Keyword.intern("elide-meta");
+        internal static readonly Keyword AotTargetFrameworkKeyword = Keyword.intern("aot-target-framework");
+        internal static readonly Keyword AotReferenceAssemblyPathKeyword = Keyword.intern("aot-reference-assembly-path");
 
 
         #endregion
@@ -243,6 +245,28 @@ namespace clojure.lang
         public static object GetCompilerOption(Keyword k)
         {
             return RT.get(CompilerOptionsVar.deref(), k);
+        }
+
+        internal static string GetCompilerStringOption(Keyword k)
+        {
+            object option = GetCompilerOption(k);
+            return option switch
+            {
+                null => null,
+                string s when string.IsNullOrWhiteSpace(s) => null,
+                string s => s,
+                _ => option.ToString()
+            };
+        }
+
+        internal static string PersistedAotTargetFramework()
+        {
+            return GetCompilerStringOption(AotTargetFrameworkKeyword);
+        }
+
+        internal static string PersistedAotReferenceAssemblyPath()
+        {
+            return GetCompilerStringOption(AotReferenceAssemblyPathKeyword);
         }
 
         internal static bool IsDirectLinkingEnabled()

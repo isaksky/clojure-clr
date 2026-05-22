@@ -106,6 +106,16 @@ namespace clojure.lang.CljCompiler.Context
             get { return CanPersist ? _assyGen.PersistedCoreAssembly : null; }
         }
 
+        public string PersistedTargetFramework
+        {
+            get { return CanPersist ? _assyGen.PersistedTargetFramework : null; }
+        }
+
+        public string PersistedReferenceAssemblyDirectory
+        {
+            get { return CanPersist ? _assyGen.PersistedReferenceAssemblyDirectory : null; }
+        }
+
         public bool UsesSameRuntimePersistedCoreAssembly
         {
             get { return CanPersist && Object.ReferenceEquals(PersistedCoreAssembly, typeof(object).Assembly); }

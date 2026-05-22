@@ -6523,6 +6523,8 @@ fails, attempts to require sym's namespace and retries."
   :direct-linking - set to true to use direct static invocation of functions, rather than vars
     Note that call sites compiled with direct linking will not be affected by var redefinition.
     Use ^:redef (or ^:dynamic) on a var to prevent direct linking and allow redefinition.
+  :aot-target-framework - .NETCoreApp target framework moniker for modern persisted AOT, e.g. \"net9.0\"
+  :aot-reference-assembly-path - directory containing target reference assemblies for modern persisted AOT
   See https://clojure.org/reference/compilation for more information."
   {:added "1.4"})
 
