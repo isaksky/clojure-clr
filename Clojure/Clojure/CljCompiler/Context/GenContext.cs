@@ -586,18 +586,19 @@ namespace clojure.lang.CljCompiler.Context
 #endif
 
         // DO not call context.AssmeblyGen.SaveAssembly() directly.
-        internal void SaveAssembly()
+        internal string SaveAssembly()
         {
             if (_dynInitHelper != null)
                 _dynInitHelper.FinalizeType();
 
 #if NETFRAMEWORK  || NET9_0_OR_GREATER
-            _assyGen.SaveAssembly();
+            return _assyGen.SaveAssembly();
 #else
             Console.WriteLine("AOT-compilation not available");
             //var assembly = AssemblyBuilder;
             //var generator = new Lokad.ILPack.AssemblyGenerator();
             //generator.GenerateAssembly(assembly,Path);
+            return null;
 #endif
         }
 

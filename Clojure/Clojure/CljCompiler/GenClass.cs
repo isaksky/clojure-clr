@@ -140,9 +140,16 @@ namespace clojure.lang
 
             Type t = proxyTB.CreateType();
 
-            context.SaveAssembly();
+            string assemblyPath = context.SaveAssembly();
 
-            return t;
+            Type runtimeType = context.CanRunNow
+                ? t
+                : Assembly.LoadFrom(assemblyPath).GetType(className, throwOnError: true);
+
+            if (Compiler.IsCompiling)
+                Compiler.RegisterDuplicateType(runtimeType);
+
+            return runtimeType;
         }
 
         #endregion

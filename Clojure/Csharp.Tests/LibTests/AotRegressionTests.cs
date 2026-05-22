@@ -123,18 +123,6 @@ namespace Clojure.Tests.LibTests
             "clojure.data"
         ];
 
-        private static readonly UnsupportedGeneratedFormCase[] UnsupportedGeneratedFormCases =
-        [
-            new(
-                "gen-class",
-                ns => $@"(ns {ns})
-(gen-class :name {ns}.GeneratedClass :load-impl-ns false)"),
-            new(
-                "proxy",
-                ns => $@"(ns {ns})
-(def writer (proxy [System.IO.StringWriter] []))")
-        ];
-
         [OneTimeSetUp]
         public void Setup()
         {
@@ -444,19 +432,93 @@ namespace Clojure.Tests.LibTests
 #endif
         }
 
-        [TestCaseSource(nameof(UnsupportedGeneratedFormCases))]
-        public void ModernPersistedAotRejectsFirstPassGeneratedForms(UnsupportedGeneratedFormCase testCase)
+        [Test]
+        public async Task ModernPersistedAotSupportsGenClass()
         {
-            using AotSample sample = AotSample.CreateFromSource(testCase.SourceFactory);
+            using AotSample sample = AotSample.CreateFromSource(ns => $@"(ns {ns})
+(gen-class :name {ns}.GeneratedClass :load-impl-ns false)
+(def generated-instance (new {ns}.GeneratedClass))
+(def generated-class-name (.FullName (class generated-instance)))");
 
-            Exception ex = Assert.Catch<Exception>(() => CompileSample(sample));
-            InvalidOperationException unsupported = FindException<InvalidOperationException>(ex);
+            CompileSample(sample);
 
-            Assert.That(unsupported, Is.Not.Null, ex.ToString());
-            Assert.That(unsupported.Message, Does.Contain(testCase.FeatureName));
-            Assert.That(unsupported.Message, Does.Contain("persisted AOT"));
-            Assert.That(File.Exists(sample.AssemblyPath), Is.False,
-                "Rejected generated forms should not leave a persisted namespace DLL.");
+            string generatedAssemblyPath = Path.Combine(sample.CompilePath, sample.NamespaceName + ".GeneratedClass.dll");
+            Assert.That(File.Exists(sample.AssemblyPath), Is.True,
+                "gen-class namespace compilation should persist the namespace DLL.");
+            Assert.That(File.Exists(generatedAssemblyPath), Is.True,
+                "gen-class should persist the generated class DLL.");
+            AssertNoEvalOrInternalDynamicReferences(sample.AssemblyPath, "gen-class namespace DLL");
+            AssertNoEvalOrInternalDynamicReferences(generatedAssemblyPath, "gen-class generated class DLL");
+
+            sample.DeleteSourceTree();
+
+            string mainAssemblyPath = GetBuiltProjectAssemblyPath("Clojure.Main", "Clojure.Main.dll");
+            Assert.That(File.Exists(mainAssemblyPath), Is.True,
+                $"Build output for Clojure.Main was not found at {mainAssemblyPath}.");
+
+            string script =
+                $"(require '{sample.NamespaceName}) " +
+                $"(println @#'{sample.NamespaceName}/generated-class-name)";
+
+            ProcessResult result = await RunProcessAsync("dotnet", sample.CompilePath, startInfo =>
+            {
+                startInfo.ArgumentList.Add(mainAssemblyPath);
+                startInfo.ArgumentList.Add("-e");
+                startInfo.ArgumentList.Add(script);
+                startInfo.Environment["DOTNET_ROLL_FORWARD"] = "Major";
+                startInfo.Environment[RT.ClojureLoadPathString] = sample.CompilePath;
+            });
+
+            Assert.That(result.ExitCode, Is.EqualTo(0), result.ToFailureMessage("gen-class source-free load"));
+
+            string[] stdoutLines = result.StandardOutput
+                .Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+            Assert.That(stdoutLines, Is.EqualTo(new[] { sample.NamespaceName + ".GeneratedClass" }),
+                result.ToFailureMessage("gen-class source-free load"));
+        }
+
+        [Test]
+        public async Task ModernPersistedAotSupportsProxyGeneratedTypes()
+        {
+            using AotSample sample = AotSample.CreateFromSource(ns => $@"(ns {ns})
+(def proxy-result
+  (let [p (proxy [System.IO.StringWriter] []
+            (ToString [] ""persisted-proxy""))]
+    (.ToString p)))");
+
+            CompileSample(sample);
+
+            Assembly assembly = Assembly.LoadFrom(sample.AssemblyPath);
+            Assert.That(assembly.GetReferencedAssemblies().Any(IsEvalOrInternalDynamicReference), Is.False,
+                "Proxy namespace DLL must not reference transient eval/internal dynamic assemblies.");
+            Assert.That(assembly.GetTypes().Any(type => type.FullName?.Contains(".proxy", StringComparison.Ordinal) == true), Is.True,
+                "Proxy namespace DLL should contain the generated proxy type.");
+
+            sample.DeleteSourceTree();
+
+            string mainAssemblyPath = GetBuiltProjectAssemblyPath("Clojure.Main", "Clojure.Main.dll");
+            Assert.That(File.Exists(mainAssemblyPath), Is.True,
+                $"Build output for Clojure.Main was not found at {mainAssemblyPath}.");
+
+            string script =
+                $"(require '{sample.NamespaceName}) " +
+                $"(println @#'{sample.NamespaceName}/proxy-result)";
+
+            ProcessResult result = await RunProcessAsync("dotnet", sample.CompilePath, startInfo =>
+            {
+                startInfo.ArgumentList.Add(mainAssemblyPath);
+                startInfo.ArgumentList.Add("-e");
+                startInfo.ArgumentList.Add(script);
+                startInfo.Environment["DOTNET_ROLL_FORWARD"] = "Major";
+                startInfo.Environment[RT.ClojureLoadPathString] = sample.CompilePath;
+            });
+
+            Assert.That(result.ExitCode, Is.EqualTo(0), result.ToFailureMessage("proxy source-free load"));
+
+            string[] stdoutLines = result.StandardOutput
+                .Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+            Assert.That(stdoutLines, Is.EqualTo(new[] { "persisted-proxy" }),
+                result.ToFailureMessage("proxy source-free load"));
         }
 
         [Test]
@@ -1038,20 +1100,6 @@ namespace Clojure.Tests.LibTests
             return var.deref();
         }
 
-        private static TException FindException<TException>(Exception ex)
-            where TException : Exception
-        {
-            while (ex is not null)
-            {
-                if (ex is TException matching)
-                    return matching;
-
-                ex = ex.InnerException;
-            }
-
-            return null;
-        }
-
         private static bool IsGeneratedHelperRuntimeName(string name)
         {
             return name is not null && Regex.IsMatch(name, @"\$helper__\d+(?=__|\$|$)");
@@ -1084,6 +1132,13 @@ namespace Clojure.Tests.LibTests
                 || name.StartsWith("eval", StringComparison.OrdinalIgnoreCase)
                 || name.Contains("InternalDynamic", StringComparison.OrdinalIgnoreCase)
                 || name.Contains("DynamicMethods", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static void AssertNoEvalOrInternalDynamicReferences(string assemblyPath, string assemblyDescription)
+        {
+            Assembly assembly = Assembly.LoadFrom(assemblyPath);
+            Assert.That(assembly.GetReferencedAssemblies().Any(IsEvalOrInternalDynamicReference), Is.False,
+                assemblyDescription + " must not reference transient eval/internal dynamic assemblies.");
         }
 
         private static string DumpMetadataReferences(string assemblyPath, string assemblyName)
@@ -1306,10 +1361,6 @@ namespace Clojure.Tests.LibTests
                    + $"{Environment.NewLine}stderr:{Environment.NewLine}{StandardError}";
         }
 
-        public sealed record UnsupportedGeneratedFormCase(string FeatureName, Func<string, string> SourceFactory)
-        {
-            public override string ToString() => FeatureName;
-        }
     }
 }
 

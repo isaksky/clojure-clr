@@ -106,13 +106,14 @@ The `net9.0+` NUnit AOT regression fixture now covers the minimal namespace gate
 - `ProgressiveMacroAotPreservesCompileTimeMacroAndLaterFormDependencies` and `ProgressiveMacroAotLoadsWithoutSourceInFreshProcess` compile a macro/progressive-eval fixture where a later macro expansion depends on an earlier top-level `def`, then require the generated DLL from a fresh process.
 - `ModernPersistedAotSupportsRuntimeGenDelegateWrappers` verifies the `gen-delegate` runtime-only policy: saved code calls `GenDelegate.Create`, the delegate wrapper is created at runtime, and the persisted namespace DLL does not reference the wrapper assembly.
 - `ModernPersistedAotPairsGeneratedInterfacesAcrossBackends` verifies `gen-interface` pairing through a protocol fixture, including persisted/eval generated type records and generated interface methods.
-- `ModernPersistedAotUsesSameRuntimeTargetFrameworkPolicy` verifies the first-pass target-framework policy: persisted AOT uses the executing runtime core assembly instead of attempting cross-TFM reference assembly selection.
-- `ModernPersistedAotDoesNotEmitPersistedDebugSymbolsInFirstPass` verifies that modern persisted AOT does not create debug documents, PDB data, or `DebuggableAttribute` metadata while portable debug symbol support is deferred.
+- `ModernPersistedAotUsesSameRuntimeTargetFrameworkPolicy` verifies the default target-framework policy: persisted AOT uses the executing runtime core assembly when no explicit target is requested.
+- `ModernPersistedAotCanSelectExplicitReferenceAssemblyTargetFramework` verifies explicit reference assembly target selection and rejects compiler runtime implementation assembly leaks.
+- `ModernPersistedAotEmitsVerifiedPortableDebugSymbols` verifies portable debug metadata, embedded PDB output, reproducibility metadata, and Clojure source sequence points in Debug builds.
 - `RuntimeNamespaceTrancheAotProducesPersistedAssemblies` compiles `clojure.walk`, `clojure.template`, `clojure.set`, `clojure.string`, and `clojure.data` into a temporary output directory, loads each persisted assembly with reflection, checks its initializer, and rejects transient eval/internal dynamic assembly references.
 - `RuntimeNamespaceTrancheAotLoadsInFreshProcess` requires the same runtime namespace tranche from a fresh `Clojure.Main` process with `CLOJURE_LOAD_PATH` set to the compile output and exercises representative `clojure.set`, `clojure.walk`, `clojure.template`, `clojure.string`, and `clojure.data` behavior.
 - `MinimalNamespaceAotPassesIlVerifyWhenConfigured` runs only when `CLOJURE_AOT_ILVERIFY` points to an `ilverify` executable. Local runs may leave it unset; CI should install `dotnet-ilverify`, set this variable, and fail the test if verification fails.
 
-The first generated-form expansion beyond the original tranche is now covered: `clojure.string` reaches `gen-delegate` and uses the runtime-only wrapper policy, while `clojure.data` reaches `gen-interface` through protocols and uses paired persisted/eval interface generation.
+The generated-form expansion beyond the original tranche is now covered: `clojure.string` reaches `gen-delegate` and uses the runtime-only wrapper policy, `clojure.data` reaches `gen-interface` through protocols and uses paired persisted/eval interface generation, `ModernPersistedAotSupportsGenClass` verifies standalone generated class save/load, and `ModernPersistedAotSupportsProxyGeneratedTypes` verifies persisted proxy emission plus source-free load.
 
 ## Future CI Gates
 
@@ -120,7 +121,5 @@ The first generated-form expansion beyond the original tranche is now covered: `
 - No eval execution dependency on a persisted generated type before save/load.
 - Later forms observe earlier compile-time effects.
 - Generated DLL loads without source.
-- Keep expanding the runtime namespace tranche after `deftype*`/`reify*`, `gen-class`, `proxy`, and dynamic host interop policies are implemented or explicitly excluded for each candidate namespace.
-- `deftype*`/`reify*` tests stay excluded or explicitly fail with a documented unsupported-feature error until implemented.
-- Cross-TFM persisted output is not a first-pass CI gate; add it with `clojure-clr-rjb` once reference assembly selection is implemented.
-- Portable PDB/source mapping is not a first-pass CI gate; add it with `clojure-clr-zkm` once debug symbol generation is verified.
+- Keep expanding the runtime namespace tranche as additional generated-form combinations and metadata policies are verified.
+- Explicit-target custom attributes and other metadata APIs should keep gaining CI coverage until runtime metadata leaks are exhausted.

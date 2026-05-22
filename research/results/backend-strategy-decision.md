@@ -12,14 +12,11 @@ That means the immediate blocker is not "PersistedAssemblyBuilder cannot save th
 
 Decision: keep the first implementation on Reflection.Emit plus `PersistedAssemblyBuilder`; do not start a Cecil backend for the next AOT slice.
 
-The paired-generation path now covers the original `def`/`defn`/top-level `let` sample, macro/progressive-eval fixtures, source-free fresh-process loading, generated function identity pairing, init/function constants and member records, same-runtime target policy, and the current runtime namespace tranche (`clojure.walk`, `clojure.template`, `clojure.set`, `clojure.string`, and `clojure.data`). The first generated-form expansion beyond the original tranche also works without replacing the backend: `gen-interface` is paired across persisted/eval contexts, and `gen-delegate` uses a runtime-only wrapper policy so saved namespace DLLs do not reference transient delegate assemblies.
+The paired-generation path now covers the original `def`/`defn`/top-level `let` sample, macro/progressive-eval fixtures, source-free fresh-process loading, generated function identity pairing, init/function constants and member records, same-runtime target policy, and the current runtime namespace tranche (`clojure.walk`, `clojure.template`, `clojure.set`, `clojure.string`, and `clojure.data`). Generated-form expansion beyond the original tranche also works without replacing the backend: `gen-interface` is paired across persisted/eval contexts, `gen-delegate` uses a runtime-only wrapper policy so saved namespace DLLs do not reference transient delegate assemblies, `gen-class` saves standalone persisted class assemblies and loads them back for compile-time use, and `proxy` emits persisted proxy classes into the namespace DLL while separate eval preserves immediate execution semantics.
 
 The remaining open work is feature-specific rather than a general backend failure:
 
-- Dynamic host interop call-site helpers still need backend-aware pairing (`clojure-clr-pop`).
-- `deftype*`/`reify*` and `gen-class`/`proxy` still need policy/support work before they can be part of persisted namespace AOT (`clojure-clr-p2d` and `clojure-clr-qqr`).
-- Cross-TFM reference assembly selection remains intentionally deferred behind the same-runtime policy (`clojure-clr-rjb`).
-- Portable debug symbols remain disabled until PersistedAssemblyBuilder output is verified with PDB/debug directory coverage (`clojure-clr-zkm`).
+- Explicit-target metadata/reference polish remains in progress for cases that cannot use runtime reflection objects directly (`clojure-clr-k3d`).
 
 Introduce Cecil only if one of those slices proves that `PersistedAssemblyBuilder` cannot express the required metadata or cannot produce a valid artifact with acceptable verification. Until then, Cecil remains a design reference for a future backend boundary, resolver/import behavior, symbols, strong naming, deterministic output, and branch/exception-handler discipline.
 
@@ -39,8 +36,8 @@ Known constraints:
 
 - Persisted assemblies cannot execute before save/load, so progressive eval still needs a runnable eval counterpart.
 - Delegate types and `SetImplementationFlags` remain a sharp edge in `DynInitHelper`.
-- Modern persisted namespace AOT disables debug document/PDB emission even in Debug builds. This keeps namespace output on the simple `PersistedAssemblyBuilder.Save` path until portable PDB/debug directory generation is verified. Follow-up: `clojure-clr-zkm`.
-- Target-framework correctness is intentionally same-runtime-only for the first pass. `MyAssemblyGen` passes `typeof(object).Assembly` as the persisted core assembly; cross-TFM/reference-assembly support is deferred until explicit `MetadataLoadContext` selection is needed. Follow-up: `clojure-clr-rjb`.
+- Modern persisted namespace AOT emits verified portable debug symbols in Debug builds by using the manual PE/PDB save path when a debug writer is present.
+- Target-framework correctness defaults to the executing runtime and can select explicit reference assemblies through `MetadataLoadContext` when requested.
 
 ## Cecil Findings
 
@@ -72,7 +69,6 @@ ILRepack, Fody, and coverlet are useful once a Cecil backend exists:
 ## Postponed
 
 - Full Cecil backend.
-- Cross-target reference assembly selection through `MetadataLoadContext` (`clojure-clr-rjb`).
-- Rich portable PDB/source-link support (`clojure-clr-zkm`).
-- `deftype*`, `reify*`, `gen-class`, and `proxy` (`clojure-clr-p2d` and `clojure-clr-qqr`).
+- Additional explicit-target metadata polish for custom attributes and other reflection APIs that cannot use runtime metadata objects directly.
+- Explicit-target persisted metadata edge cases that still need runtime/reference assembly separation.
 - Async method emission beyond current conditional support.

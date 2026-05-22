@@ -296,7 +296,7 @@ namespace clojure.lang
         internal static void CheckGeneratedFormAllowedInCurrentContext(string formName)
         {
 #if NET9_0_OR_GREATER
-            if (IsPersistedAssemblyCompilationContext())
+            if (IsPersistedAssemblyCompilationContext() && !GeneratedFormAllowedDuringPersistedAot(formName))
                 throw new InvalidOperationException(
                     formName + " is not supported during modern .NET persisted AOT compilation yet. "
                     + "Generated-form type families must be paired across eval and persisted contexts before these forms can be saved safely.");
@@ -304,6 +304,12 @@ namespace clojure.lang
         }
 
 #if NET9_0_OR_GREATER
+        private static bool GeneratedFormAllowedDuringPersistedAot(string formName)
+        {
+            return formName == "gen-class"
+                || formName == "proxy";
+        }
+
         private static bool IsPersistedAssemblyCompilationContext()
         {
             return IsCompiling

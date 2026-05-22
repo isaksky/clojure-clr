@@ -52,6 +52,6 @@ Reflection inspection found only persisted generated types inside the saved asse
 
 For `net9.0+` persisted namespace compilation, direct linking is disabled by compiler context, not merely by test environment. Even if `:direct-linking true` is bound, `InvokeExpr` does not produce `StaticInvokeExpr` while the active compiler context targets a `PersistedAssemblyBuilder`, and the direct-link registry does not record or return `Var -> Type` entries in that context. This keeps the minimal AOT path on normal Var invocation until direct links can resolve through backend-specific generated type/member identities.
 
-## First-Pass Dynamic Host Interop Constraint
+## Dynamic Host Interop Policy
 
-For `net9.0+` persisted namespace compilation, dynamic host interop is rejected before DLR call-site helper/delegate emission. This prevents the saved assembly from embedding unpaired generated delegate types, `CallSite<T>` field signatures, helper setter methods, or binder-created initialization methods while the minimal AOT milestone is still using independent eval and persisted emission passes. Normal eval-side dynamic host interop remains available because the guard applies only to active persisted compile contexts.
+For `net9.0+` persisted namespace compilation, dynamic host interop emits DLR call-site helper/delegate artifacts through the active backend context. Persisted helper types, `CallSite<T>` fields, helper setter methods, and binder-created initialization methods are saved with the namespace DLL, while the separate eval pass emits runnable counterparts for compile-time execution. Regression coverage checks that persisted dynamic host interop output does not reference transient eval/internal dynamic assemblies.

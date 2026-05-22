@@ -38,7 +38,7 @@ At EOF, the compiler emits `ret`, constants initialization, the init type static
 | `deftype*`/`reify*` | Generates base and implementation types during analysis | Eval must produce runtime type usable by following forms | High: generated base/main type cross-links |
 | `gen-interface` | Defines an interface during `parse-eval*` | Separate eval emits an eval-side interface before later forms run | Medium; now paired across persisted/eval contexts |
 | `gen-delegate` | Persisted code emits a call to `GenDelegate.Create`; wrapper type is not saved | Runtime/eval creates the exact delegate wrapper when the call executes | Medium; supported as runtime-only generated wrapper |
-| `gen-class`, `proxy` | Separate generators define and sometimes save types | Runtime/eval may observe generated `Type` immediately | High; defer until each has a supported save policy |
+| `gen-class`, `proxy` | `gen-class` saves a standalone persisted class assembly and loads it back; `proxy` emits a persisted type into the namespace DLL | Separate eval creates runnable proxy/runtime artifacts so later forms can observe generated `Type` values immediately | Medium; supported by save/load and separate-eval policies, with cross-reference checks |
 
 ## Replay Boundaries
 
