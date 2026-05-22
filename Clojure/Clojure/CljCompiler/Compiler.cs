@@ -232,6 +232,7 @@ namespace clojure.lang
         internal static readonly Var CompilingDefTypeVar = Var.create(null).setDynamic();
 
         internal static readonly Var CompilerContextVar = Var.create(null).setDynamic();
+        internal static readonly Var GenerationContextVar = Var.create(null).setDynamic();
         internal static readonly Var CompilerActiveVar = Var.create(false).setDynamic();
 
         internal static readonly bool RuntimeAsyncAvailable =
@@ -266,9 +267,15 @@ namespace clojure.lang
         {
             return IsCompiling
                 && CompilerContextVar.deref() is GenContext context
-                && context.AssemblyBuilder is PersistedAssemblyBuilder;
+                && context.ArtifactBackend == GeneratedArtifactBackend.Persisted;
         }
 #endif
+
+        internal static GenerationContextPair CurrentGenerationContext()
+        {
+            return GenerationContextVar.deref() as GenerationContextPair
+                ?? (CompilerContextVar.deref() as GenContext)?.GenerationContexts;
+        }
 
         internal static void InitializeCompilerOptions()
         {
@@ -1273,7 +1280,20 @@ namespace clojure.lang
             object column = (meta is not null ? meta.valAt(RT.ColumnKey, ColumnVarDeref()) : ColumnVarDeref());
             object sourceSpan = (meta is not null ? meta.valAt(RT.SourceSpanKey, SourceSpanVar.deref()) : SourceSpanVar.deref());
 
-            IPersistentMap bindings = RT.mapUniqueKeys(LineVar, line, ColumnVar, column, SourceSpanVar, sourceSpan, CompilerContextVar, null);
+            GenerationContextPair generationContexts = CurrentGenerationContext();
+            GenContext evalContext = generationContexts?.EvalContext;
+
+            IPersistentMap bindings = RT.mapUniqueKeys(
+                LineVar,
+                line,
+                ColumnVar,
+                column,
+                SourceSpanVar,
+                sourceSpan,
+                CompilerContextVar,
+                evalContext,
+                GenerationContextVar,
+                generationContexts);
             if (meta is not null)
             {
                 object eval_file = meta.valAt(RT.EvalFileKey);
@@ -1807,6 +1827,7 @@ namespace clojure.lang
                 RT.WarnOnReflectionVar, RT.WarnOnReflectionVar.deref(),
                 RT.DataReadersVar, RT.DataReadersVar.deref(),
                 CompilerContextVar, context,
+                GenerationContextVar, context.GenerationContexts,
                 CompilerActiveVar, true
                 ));
 
@@ -1901,7 +1922,7 @@ namespace clojure.lang
                     }
 
 #if NET9_0_OR_GREATER
-                    DoSeparateEval(evPC, form);
+                    DoSeparateEval(form);
 #else
                     expr.Eval();
 #endif
@@ -1913,9 +1934,11 @@ namespace clojure.lang
             }
         }
 
-        private static void DoSeparateEval(ParserContext evPC, Object form)
+        private static void DoSeparateEval(Object form)
         {
             // Reset the environment to avoid leaking the compile environment
+            GenerationContextPair generationContexts = CurrentGenerationContext();
+            GenContext evalContext = generationContexts?.EvalContext ?? EvalContext;
 
             Var.pushThreadBindings(RT.mapUniqueKeys(
                 MethodVar, null,
@@ -1931,7 +1954,8 @@ namespace clojure.lang
                 //RT.UncheckedMathVar, RT.UncheckedMathVar.deref(),
                 //RT.WarnOnReflectionVar, RT.WarnOnReflectionVar.deref(),
                 //RT.DataReadersVar, RT.DataReadersVar.deref(),
-                CompilerContextVar, null,
+                CompilerContextVar, evalContext,
+                GenerationContextVar, generationContexts,
                 CompilerActiveVar, false
                 ));
             try

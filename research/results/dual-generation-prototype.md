@@ -66,4 +66,4 @@ All Classes and Methods in .../DualGenerationPersisted.dll Verified.
 
 ## Takeaway
 
-The first compiler implementation can use paired Reflection.Emit contexts before introducing Cecil. The hard part is not saving a simple persisted assembly; it is making every compiler reference to generated types and members resolve through the correct side of the pair.
+The first compiler implementation can use paired Reflection.Emit contexts before introducing Cecil. The compiler now mirrors the prototype shape with an explicit `GenerationContextPair`: one runnable eval `GenContext`, one persisted `GenContext`, and a shared generated-artifact registry. The hard part remains making every compiler reference to generated types and members resolve through the correct side of the pair.

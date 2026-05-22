@@ -74,13 +74,31 @@ namespace clojure.lang.CljCompiler.Context
         public TypeBuilder TB { get { return _tb; } }
 
         readonly string _sourceName;
-        readonly GeneratedArtifactRegistry _generatedArtifacts = new();
+        readonly GeneratedArtifactRegistry _generatedArtifacts;
         public GeneratedArtifactRegistry GeneratedArtifacts
         {
             get { return _generatedArtifacts; }
         }
 
         public GeneratedArtifactBackend ArtifactBackend { get; }
+        public GenerationContextPair GenerationContexts { get; private set; }
+
+        public bool CanRunNow
+        {
+            get
+            {
+#if NET9_0_OR_GREATER
+                return ArtifactBackend != GeneratedArtifactBackend.Persisted;
+#else
+                return true;
+#endif
+            }
+        }
+
+        public bool CanPersist
+        {
+            get { return ArtifactBackend == GeneratedArtifactBackend.Persisted; }
+        }
 
 
         public string Path { get; set; }
@@ -128,8 +146,10 @@ namespace clojure.lang.CljCompiler.Context
 
         public static GenContext CreateWithInternalAssembly(string assyName, bool createDynInitHelper)
         {
-            GenContext ctx = CreateGenContext(AssemblyType.Internal, assyName, assyName, ".dll", null, createDynInitHelper);
+            GeneratedArtifactRegistry generatedArtifacts = new();
+            GenContext ctx = CreateGenContext(AssemblyType.Internal, assyName, assyName, ".dll", null, createDynInitHelper, generatedArtifacts);
             AddInternalAssembly(ctx);
+            GenerationContextPair.CreateEvalOnly(ctx);
             return ctx;
         }
 
@@ -143,7 +163,28 @@ namespace clojure.lang.CljCompiler.Context
         public static GenContext CreateWithExternalAssembly(string sourceName, string assyName, string extension, bool createDynInitHelper)
         {
             string path = Compiler.CompilePathVar.deref() as string;
-            return CreateGenContext(AssemblyType.External, sourceName, assyName, extension, path ?? System.IO.Directory.GetCurrentDirectory(), createDynInitHelper);
+            GeneratedArtifactRegistry generatedArtifacts = new();
+            GenContext persistedContext = CreateGenContext(
+                AssemblyType.External,
+                sourceName,
+                assyName,
+                extension,
+                path ?? System.IO.Directory.GetCurrentDirectory(),
+                createDynInitHelper,
+                generatedArtifacts);
+
+            GenContext evalContext = CreateGenContext(
+                AssemblyType.Internal,
+                sourceName,
+                EvalAssemblyName(assyName),
+                ".dll",
+                null,
+                createDynInitHelper,
+                generatedArtifacts);
+
+            AddInternalAssembly(evalContext);
+            GenerationContextPair.CreatePaired(evalContext, persistedContext);
+            return persistedContext;
         }
 
         public static GenContext CreateWithExternalAssembly(string assyName, string extension, bool createDynInitHelper)
@@ -151,7 +192,14 @@ namespace clojure.lang.CljCompiler.Context
             return CreateWithExternalAssembly(assyName, assyName, extension, createDynInitHelper);
         }
 
-        private static GenContext CreateGenContext(AssemblyType assemblyType, string sourceName, string assyName, string extension, string directory, bool createDynInitHelper)
+        private static GenContext CreateGenContext(
+            AssemblyType assemblyType,
+            string sourceName,
+            string assyName,
+            string extension,
+            string directory,
+            bool createDynInitHelper,
+            GeneratedArtifactRegistry generatedArtifacts)
         {
             if (directory != null)
             {
@@ -160,13 +208,27 @@ namespace clojure.lang.CljCompiler.Context
             }
 
             AssemblyName aname = new AssemblyName(assyName);
-            return new GenContext(assemblyType, directory, aname, extension, createDynInitHelper, sourceName);
+            return new GenContext(assemblyType, directory, aname, extension, createDynInitHelper, sourceName, generatedArtifacts);
         }
 
-        private GenContext(AssemblyType assemblyType, string directory, AssemblyName aname, string extension, bool createDynInitHelper, string sourceName)
+        private static string EvalAssemblyName(string assyName)
+        {
+            string name = string.IsNullOrEmpty(assyName) ? "eval" : assyName;
+            return name.Replace('/', '.').Replace('\\', '.').Replace(System.IO.Path.PathSeparator, '.') + "__eval" + RT.nextID();
+        }
+
+        private GenContext(
+            AssemblyType assemblyType,
+            string directory,
+            AssemblyName aname,
+            string extension,
+            bool createDynInitHelper,
+            string sourceName,
+            GeneratedArtifactRegistry generatedArtifacts)
         {
             // TODO: Make this settable from a *debug* flag
             _sourceName = sourceName;
+            _generatedArtifacts = generatedArtifacts ?? new GeneratedArtifactRegistry();
             ArtifactBackend = assemblyType == AssemblyType.Internal
                 ? GeneratedArtifactBackend.Eval
                 : GeneratedArtifactBackend.Persisted;
@@ -253,6 +315,16 @@ namespace clojure.lang.CljCompiler.Context
         private GenContext Clone()
         {
             return (GenContext)MemberwiseClone();
+        }
+
+        internal void AttachGenerationContexts(GenerationContextPair generationContexts)
+        {
+            if (generationContexts is null)
+                throw new ArgumentNullException(nameof(generationContexts));
+            if (GenerationContexts is not null && !ReferenceEquals(GenerationContexts, generationContexts))
+                throw new InvalidOperationException("Generation contexts were already attached.");
+
+            GenerationContexts = generationContexts;
         }
 
         public GenContext WithTypeBuilder(TypeBuilder tb)

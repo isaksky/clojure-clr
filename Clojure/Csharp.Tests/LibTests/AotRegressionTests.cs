@@ -117,6 +117,33 @@ namespace Clojure.Tests.LibTests
         }
 
         [Test]
+        public void MinimalNamespaceAotCarriesExplicitEvalAndPersistedGenerationContexts()
+        {
+            using AotSample sample = AotSample.Create();
+            GenContext persistedContext = CompileSampleWithExplicitContext(sample);
+            GenerationContextPair generationContexts = persistedContext.GenerationContexts;
+
+            Assert.That(generationContexts, Is.Not.Null, "AOT compile context should expose its paired generation contexts.");
+            Assert.That(generationContexts.PersistedContext, Is.SameAs(persistedContext));
+            Assert.That(generationContexts.EvalContext.ArtifactBackend, Is.EqualTo(GeneratedArtifactBackend.Eval));
+            Assert.That(generationContexts.EvalContext.CanRunNow, Is.True);
+            Assert.That(persistedContext.CanPersist, Is.True);
+            Assert.That(generationContexts.GeneratedArtifacts, Is.SameAs(persistedContext.GeneratedArtifacts));
+            Assert.That(generationContexts.EvalContext.GeneratedArtifacts, Is.SameAs(persistedContext.GeneratedArtifacts));
+
+            GeneratedTypeRecord fnType = persistedContext.GeneratedArtifacts.Types.SingleOrDefault(
+                t => t.GetRuntimeName(GeneratedArtifactBackend.Persisted) == sample.NamespaceName + "$inc_answer");
+
+            Assert.That(fnType, Is.Not.Null, "Generated defn function type should be registered.");
+            Assert.That(fnType.GetCreatedType(GeneratedArtifactBackend.Persisted), Is.Not.Null,
+                "Persisted pass should record the persisted function type.");
+            Assert.That(fnType.GetCreatedType(GeneratedArtifactBackend.Eval), Is.Not.Null,
+                "Separate eval pass should record the runnable eval function type on the same logical artifact.");
+            Assert.That(fnType.Members.Values.Any(IsEvalInvokeStaticMethod), Is.True,
+                "Separate eval pass should record eval-side invokeStatic().");
+        }
+
+        [Test]
         public async Task MinimalNamespaceAotLoadsWithoutSourceInFreshProcess()
         {
             using AotSample sample = AotSample.Create();
@@ -272,6 +299,13 @@ namespace Clojure.Tests.LibTests
             return member.Id.Kind == GeneratedMemberKind.Method
                 && member.Id.LogicalName == "invokeStatic"
                 && member.PersistedMember is MethodInfo;
+        }
+
+        private static bool IsEvalInvokeStaticMethod(GeneratedMemberRecord member)
+        {
+            return member.Id.Kind == GeneratedMemberKind.Method
+                && member.Id.LogicalName == "invokeStatic"
+                && member.EvalMember is MethodInfo;
         }
 
         private static bool IsEvalOrInternalDynamicReference(AssemblyName reference)

@@ -57,6 +57,18 @@ public sealed class MyAssemblyGen
     internal AssemblyBuilder AssemblyBuilder => _myAssembly;
     internal ModuleBuilder ModuleBuilder => _myModule;
     internal bool IsDebuggable => _isDebuggable;
+    internal bool IsPersistable => _isPersistable;
+    internal bool CanRunNow
+    {
+        get
+        {
+#if NET9_0_OR_GREATER
+            return !_isPersistable;
+#else
+            return true;
+#endif
+        }
+    }
 
     // This is the constructor for the non-persisted assembly.
     public MyAssemblyGen(AssemblyName name, bool isDebuggable)
