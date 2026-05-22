@@ -212,6 +212,7 @@ public sealed class MyAssemblyGen
             _myAssembly,
             typeof(SecurityTransparentAttribute).GetConstructor(ReflectionUtils.EmptyTypes),
             ArrayUtils.EmptyObjects);
+        SetTargetFrameworkAttribute();
 #endif
 
         if (isDebuggable) {
@@ -312,6 +313,50 @@ public sealed class MyAssemblyGen
     }
 
 #if NET9_0_OR_GREATER
+    private void SetTargetFrameworkAttribute()
+    {
+        string frameworkName = PersistedTargetFrameworkAttributeName();
+        if (string.IsNullOrWhiteSpace(frameworkName))
+            return;
+
+        ConstructorInfo constructor = typeof(TargetFrameworkAttribute).GetConstructor(new[] { typeof(string) });
+        PropertyInfo displayNameProperty = typeof(TargetFrameworkAttribute).GetProperty(nameof(TargetFrameworkAttribute.FrameworkDisplayName));
+        string displayName = TargetFrameworkDisplayName(frameworkName);
+
+        SetCustomAttribute(
+            (resolvedConstructor, blob) => _myAssembly.SetCustomAttribute(resolvedConstructor, blob),
+            builder => _myAssembly.SetCustomAttribute(builder),
+            constructor,
+            new object[] { frameworkName },
+            string.IsNullOrWhiteSpace(displayName) ? null : new[] { displayNameProperty },
+            string.IsNullOrWhiteSpace(displayName) ? null : new object[] { displayName },
+            null,
+            null);
+    }
+
+    private string PersistedTargetFrameworkAttributeName()
+    {
+        if (!string.IsNullOrWhiteSpace(_persistedTargetFramework))
+            return ".NETCoreApp,Version=v" + ExtractNetCoreAppVersion(_persistedTargetFramework);
+
+        return AppContext.TargetFrameworkName;
+    }
+
+    private static string TargetFrameworkDisplayName(string frameworkName)
+    {
+        try
+        {
+            FrameworkName parsed = new(frameworkName);
+            if (parsed.Identifier.Equals(".NETCoreApp", StringComparison.OrdinalIgnoreCase))
+                return ".NET " + parsed.Version.Major + "." + parsed.Version.Minor;
+        }
+        catch (ArgumentException)
+        {
+        }
+
+        return null;
+    }
+
     internal void SetCustomAttribute(
         TypeBuilder target,
         ConstructorInfo constructor,

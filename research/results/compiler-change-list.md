@@ -12,7 +12,7 @@
 | `Compiler.cs` / `ObjExpr.cs` / `DefExpr.cs` / `VarExpr.cs` / `KeywordExpr.cs` | Map namespace init and function class constants, Vars, Keywords, fields, constructors, static constructors, and helper methods through generated member records. Current minimal path records these artifacts; see `emitted-member-map.md`. | Member pair registry | Missing member identities force later replay code back to raw `FieldBuilder`/`ConstructorInfo` handles | Keep two independent analyses and verify registry coverage before one-analysis replay |
 | `StaticInvokeExpr.cs` / `InvokeExpr.cs` | Resolve direct static invokes through backend-local method handles. First-pass guard makes `InvokeExpr` ignore requested direct linking in persisted compilation contexts. | Direct-link records | Persisted/eval contamination | Keep direct linking disabled for persisted AOT initially |
 | `Context/GenContext.cs` | Represent eval and persisted generation contexts as an explicit pair for AOT compile. | `MyAssemblyGen` pair | Current globals make it easy to use the wrong context | Add `CompilationPairContext` without removing existing single context |
-| `Context/MyAssemblyGen.cs` | Keep same-runtime persisted save path by default and support explicit reference assembly selection for requested target frameworks. | Verification plan | Runtime metadata can leak into explicit-target output | Verify explicit target metadata references |
+| `Context/MyAssemblyGen.cs` | Keep same-runtime persisted save path by default, support explicit reference assembly selection for requested target frameworks, and emit explicit-target custom-attribute blobs for saved assembly/type/member metadata. | Verification plan | Runtime metadata can leak into explicit-target output | Verified by explicit-target metadata/reference regression tests |
 
 ## Required For Dynamic Call-Sites
 
@@ -48,13 +48,13 @@ Current policy: `gen-interface` is supported during modern .NET persisted AOT by
 
 ## Debug Symbols And Target Frameworks
 
-Current policy: modern persisted namespace AOT uses same-runtime output by default, supports explicit reference assembly selection for requested target frameworks, and emits verified portable debug symbols when Debug builds create a debug writer.
+Current policy: modern persisted namespace AOT uses same-runtime output by default, supports explicit reference assembly selection for requested target frameworks, stamps saved assemblies with target-framework metadata, emits explicit-target custom attributes through metadata blobs, and emits verified portable debug symbols when Debug builds create a debug writer.
 
 | File | Change | Dependency | Risk | Fallback |
 | --- | --- | --- | --- | --- |
 | `GenContext.cs` | Persisted `net9.0+` namespace AOT contexts can emit portable debug documents and sequence points in Debug builds. | Portable PDB verification | Bad sequence points can produce invalid PE/PDB output | Use verified manual PE/PDB save path |
 | `MyAssemblyGen.cs` | Keep the manual PE/PDB save path out of first-pass namespace AOT unless an entry point or verified debug writer is explicitly needed. | Verification tooling | Incorrect debug directory or portable PDB row counts | Use simple `PersistedAssemblyBuilder.Save` |
-| `MyAssemblyGen.cs` | Target the executing runtime by default, or resolve explicit target reference assemblies through `MetadataLoadContext`. | Reference assembly resolver | Runtime implementation assemblies can leak into explicit-target metadata | Verify explicit target references and continue polishing custom attributes |
+| `MyAssemblyGen.cs` | Target the executing runtime by default, or resolve explicit target reference assemblies through `MetadataLoadContext`. | Reference assembly resolver | Runtime implementation assemblies can leak into explicit-target metadata | Verified for current explicit-target metadata/reference fixtures |
 
 ## Runtime Packaging
 

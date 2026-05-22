@@ -14,9 +14,7 @@ Decision: keep the first implementation on Reflection.Emit plus `PersistedAssemb
 
 The paired-generation path now covers the original `def`/`defn`/top-level `let` sample, macro/progressive-eval fixtures, source-free fresh-process loading, generated function identity pairing, init/function constants and member records, same-runtime target policy, and the current runtime namespace tranche (`clojure.walk`, `clojure.template`, `clojure.set`, `clojure.string`, and `clojure.data`). Generated-form expansion beyond the original tranche also works without replacing the backend: `gen-interface` is paired across persisted/eval contexts, `gen-delegate` uses a runtime-only wrapper policy so saved namespace DLLs do not reference transient delegate assemblies, `gen-class` saves standalone persisted class assemblies and loads them back for compile-time use, and `proxy` emits persisted proxy classes into the namespace DLL while separate eval preserves immediate execution semantics.
 
-The remaining open work is feature-specific rather than a general backend failure:
-
-- Explicit-target metadata/reference polish remains in progress for cases that cannot use runtime reflection objects directly (`clojure-clr-k3d`).
+No remaining open AOT beads are feature-specific backend blockers. Explicit-target metadata/reference polish is implemented for the currently verified cases, including custom attributes that need reference-assembly constructors, named property/field blobs, Type-valued source metadata, dynamic host interop helpers, and saved assembly `TargetFrameworkAttribute` metadata.
 
 Introduce Cecil only if one of those slices proves that `PersistedAssemblyBuilder` cannot express the required metadata or cannot produce a valid artifact with acceptable verification. Until then, Cecil remains a design reference for a future backend boundary, resolver/import behavior, symbols, strong naming, deterministic output, and branch/exception-handler discipline.
 
@@ -38,6 +36,7 @@ Known constraints:
 - Delegate types and `SetImplementationFlags` remain a sharp edge in `DynInitHelper`.
 - Modern persisted namespace AOT emits verified portable debug symbols in Debug builds by using the manual PE/PDB save path when a debug writer is present.
 - Target-framework correctness defaults to the executing runtime and can select explicit reference assemblies through `MetadataLoadContext` when requested.
+- Explicit-target custom attributes are emitted through encoded metadata blobs so saved assemblies avoid runtime implementation assembly references.
 
 ## Cecil Findings
 
@@ -69,6 +68,5 @@ ILRepack, Fody, and coverlet are useful once a Cecil backend exists:
 ## Postponed
 
 - Full Cecil backend.
-- Additional explicit-target metadata polish for custom attributes and other reflection APIs that cannot use runtime metadata objects directly.
-- Explicit-target persisted metadata edge cases that still need runtime/reference assembly separation.
+- Newly discovered explicit-target persisted metadata edge cases outside the current verification matrix.
 - Async method emission beyond current conditional support.

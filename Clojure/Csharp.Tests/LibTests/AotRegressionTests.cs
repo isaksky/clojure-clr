@@ -228,16 +228,15 @@ namespace Clojure.Tests.LibTests
         [Test]
         public void ExplicitTargetAotSupportsDynamicHostInteropCallSites()
         {
-            string targetFramework = CurrentTestTargetFramework();
-            string referenceAssemblyDirectory = FindReferenceAssemblyDirectory(targetFramework);
-            if (referenceAssemblyDirectory is null)
-                Assert.Ignore($"No Microsoft.NETCore.App.Ref reference assemblies are installed for {targetFramework}.");
+            ReferenceAssemblyTarget target = FindReferenceAssemblyTarget();
+            if (target.ReferenceAssemblyDirectory is null)
+                Assert.Ignore($"No Microsoft.NETCore.App.Ref reference assemblies are installed for {target.TargetFramework}.");
 
             using AotSample sample = AotSample.Create(DynamicHostInteropBody);
             GenContext context = CompileSampleWithExplicitContext(
                 sample,
-                targetFramework: targetFramework,
-                referenceAssemblyPath: referenceAssemblyDirectory);
+                targetFramework: target.TargetFramework,
+                referenceAssemblyPath: target.ReferenceAssemblyDirectory);
 
             Assert.That(VarValue(sample, "dynamic-result"), Is.EqualTo("42"));
             Assert.That(VarValue(sample, "dynamic-length-result"), Is.EqualTo(4));
@@ -371,22 +370,21 @@ namespace Clojure.Tests.LibTests
         [Test]
         public void ModernPersistedAotCanSelectExplicitReferenceAssemblyTargetFramework()
         {
-            string targetFramework = CurrentTestTargetFramework();
-            string referenceAssemblyDirectory = FindReferenceAssemblyDirectory(targetFramework);
-            if (referenceAssemblyDirectory is null)
-                Assert.Ignore($"No Microsoft.NETCore.App.Ref reference assemblies are installed for {targetFramework}.");
+            ReferenceAssemblyTarget target = FindReferenceAssemblyTarget();
+            if (target.ReferenceAssemblyDirectory is null)
+                Assert.Ignore($"No Microsoft.NETCore.App.Ref reference assemblies are installed for {target.TargetFramework}.");
 
             using AotSample sample = AotSample.Create();
             GenContext context = CompileSampleWithExplicitContext(
                 sample,
-                targetFramework: targetFramework,
-                referenceAssemblyPath: referenceAssemblyDirectory);
+                targetFramework: target.TargetFramework,
+                referenceAssemblyPath: target.ReferenceAssemblyDirectory);
 
             Assert.That(context.UsesSameRuntimePersistedCoreAssembly, Is.False,
                 "Explicit persisted AOT target selection should use reference assemblies, not the compiler runtime core assembly.");
             Assert.That(context.PersistedCoreAssembly.GetName().Name, Is.EqualTo("System.Runtime"));
-            Assert.That(context.PersistedTargetFramework, Is.EqualTo(targetFramework));
-            Assert.That(context.PersistedReferenceAssemblyDirectory, Is.EqualTo(Path.GetFullPath(referenceAssemblyDirectory)));
+            Assert.That(context.PersistedTargetFramework, Is.EqualTo(target.TargetFramework));
+            Assert.That(context.PersistedReferenceAssemblyDirectory, Is.EqualTo(Path.GetFullPath(target.ReferenceAssemblyDirectory)));
             Assert.That(VarValue(sample, "invoked"), Is.EqualTo(42));
 
             SaveExplicitContext(context);
@@ -402,6 +400,11 @@ namespace Clojure.Tests.LibTests
             Assert.That(description.Description, Is.EqualTo("{:clojure-namespace " + sample.NamespaceName + "}"));
             Assert.That(assembly.GetCustomAttribute<System.Security.SecurityTransparentAttribute>(), Is.Not.Null,
                 "Explicit target selection should emit SecurityTransparentAttribute without runtime metadata leaks.");
+            TargetFrameworkAttribute targetFrameworkAttribute = assembly.GetCustomAttribute<TargetFrameworkAttribute>();
+            Assert.That(targetFrameworkAttribute, Is.Not.Null,
+                "Explicit target selection should stamp the saved assembly target framework.");
+            Assert.That(targetFrameworkAttribute.FrameworkName, Is.EqualTo(TargetFrameworkAttributeName(target.TargetFramework)));
+            Assert.That(targetFrameworkAttribute.FrameworkDisplayName, Is.EqualTo(TargetFrameworkDisplayName(target.TargetFramework)));
             if (context.IsDebuggable)
             {
                 Assert.That(assembly.GetCustomAttribute<DebuggableAttribute>(), Is.Not.Null,
@@ -421,18 +424,17 @@ namespace Clojure.Tests.LibTests
         [Test]
         public void ExplicitTargetMetadataAttributesPreserveNamedMembersWithoutRuntimeCoreLeaks()
         {
-            string targetFramework = CurrentTestTargetFramework();
-            string referenceAssemblyDirectory = FindReferenceAssemblyDirectory(targetFramework);
-            if (referenceAssemblyDirectory is null)
-                Assert.Ignore($"No Microsoft.NETCore.App.Ref reference assemblies are installed for {targetFramework}.");
+            ReferenceAssemblyTarget target = FindReferenceAssemblyTarget();
+            if (target.ReferenceAssemblyDirectory is null)
+                Assert.Ignore($"No Microsoft.NETCore.App.Ref reference assemblies are installed for {target.TargetFramework}.");
 
             using AotCompileOutput output = AotCompileOutput.Create();
             string typeName = "AotAttributeCarrier" + Guid.NewGuid().ToString("N");
             string assemblyPath = EmitMetadataAttributeSample(
                 output.CompilePath,
                 typeName,
-                targetFramework,
-                referenceAssemblyDirectory);
+                target.TargetFramework,
+                target.ReferenceAssemblyDirectory);
 
             Assembly assembly = Assembly.LoadFrom(assemblyPath);
             Type emittedType = assembly.GetType(typeName, throwOnError: true);
@@ -455,16 +457,15 @@ namespace Clojure.Tests.LibTests
         [Test]
         public void ExplicitTargetAotSourceMetadataTypeConstantsDoNotLeakRuntimeCoreReferences()
         {
-            string targetFramework = CurrentTestTargetFramework();
-            string referenceAssemblyDirectory = FindReferenceAssemblyDirectory(targetFramework);
-            if (referenceAssemblyDirectory is null)
-                Assert.Ignore($"No Microsoft.NETCore.App.Ref reference assemblies are installed for {targetFramework}.");
+            ReferenceAssemblyTarget target = FindReferenceAssemblyTarget();
+            if (target.ReferenceAssemblyDirectory is null)
+                Assert.Ignore($"No Microsoft.NETCore.App.Ref reference assemblies are installed for {target.TargetFramework}.");
 
             using AotSample sample = AotSample.Create(MetadataTypeConstantsBody);
             GenContext context = CompileSampleWithExplicitContext(
                 sample,
-                targetFramework: targetFramework,
-                referenceAssemblyPath: referenceAssemblyDirectory);
+                targetFramework: target.TargetFramework,
+                referenceAssemblyPath: target.ReferenceAssemblyDirectory);
 
             Assert.That(VarValue(sample, "metadata-values"), Is.InstanceOf<IPersistentMap>());
 
@@ -1084,6 +1085,37 @@ namespace Clojure.Tests.LibTests
             throw new InvalidOperationException("Could not determine the current test target framework.");
         }
 
+        private static ReferenceAssemblyTarget FindReferenceAssemblyTarget()
+        {
+            string testTargetFramework = CurrentTestTargetFramework();
+            string referenceAssemblyDirectory = FindReferenceAssemblyDirectory(testTargetFramework);
+            if (referenceAssemblyDirectory is not null)
+                return new ReferenceAssemblyTarget(testTargetFramework, referenceAssemblyDirectory);
+
+            string runtimeTargetFramework = CurrentRuntimeTargetFramework();
+            if (!string.IsNullOrWhiteSpace(runtimeTargetFramework)
+                && !runtimeTargetFramework.Equals(testTargetFramework, StringComparison.OrdinalIgnoreCase))
+            {
+                referenceAssemblyDirectory = FindReferenceAssemblyDirectory(runtimeTargetFramework);
+                if (referenceAssemblyDirectory is not null)
+                    return new ReferenceAssemblyTarget(runtimeTargetFramework, referenceAssemblyDirectory);
+            }
+
+            return new ReferenceAssemblyTarget(testTargetFramework, null);
+        }
+
+        private static string CurrentRuntimeTargetFramework()
+        {
+            string runtimeDirectory = RuntimeEnvironment.GetRuntimeDirectory();
+            if (string.IsNullOrWhiteSpace(runtimeDirectory))
+                return null;
+
+            string runtimeVersion = new DirectoryInfo(runtimeDirectory).Name;
+            return Version.TryParse(runtimeVersion, out Version version)
+                ? "net" + version.Major + "." + version.Minor
+                : null;
+        }
+
         private static string FindReferenceAssemblyDirectory(string targetFramework)
         {
             string bestDirectory = null;
@@ -1155,6 +1187,24 @@ namespace Clojure.Tests.LibTests
             return Version.TryParse(version, out Version parsed)
                 ? parsed
                 : new Version(0, 0);
+        }
+
+        private static string TargetFrameworkAttributeName(string targetFramework)
+        {
+            Match match = Regex.Match(targetFramework, @"^net(?<version>\d+\.\d+)");
+            if (!match.Success)
+                throw new ArgumentException("Expected a .NETCoreApp TFM such as net9.0.", nameof(targetFramework));
+
+            return ".NETCoreApp,Version=v" + match.Groups["version"].Value;
+        }
+
+        private static string TargetFrameworkDisplayName(string targetFramework)
+        {
+            Match match = Regex.Match(targetFramework, @"^net(?<version>\d+\.\d+)");
+            if (!match.Success)
+                throw new ArgumentException("Expected a .NETCoreApp TFM such as net9.0.", nameof(targetFramework));
+
+            return ".NET " + match.Groups["version"].Value;
         }
 
         private static bool IsPersistedInitializeMethod(GeneratedMemberRecord member)
@@ -1602,6 +1652,8 @@ namespace Clojure.Tests.LibTests
                 try { Directory.Delete(WorkDir, true); } catch { }
             }
         }
+
+        private sealed record ReferenceAssemblyTarget(string TargetFramework, string ReferenceAssemblyDirectory);
 
         private sealed record ProcessResult(int ExitCode, string StandardOutput, string StandardError)
         {
