@@ -8,6 +8,7 @@ using System.Reflection;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using clojure.lang;
+using clojure.lang.CljCompiler.Ast;
 using clojure.lang.CljCompiler.Context;
 using NUnit.Framework;
 using Compiler = clojure.lang.Compiler;
@@ -119,6 +120,49 @@ namespace Clojure.Tests.LibTests
                 "Namespace init type should record Initialize().");
             Assert.That(fnType.Members.Values.Any(IsPersistedInvokeStaticMethod), Is.True,
                 "Generated defn function type should record invokeStatic().");
+        }
+
+        [Test]
+        public void MinimalNamespaceAotRecordsConstantsVarsKeywordsConstructorsFieldsAndHelpers()
+        {
+            using AotSample sample = AotSample.Create();
+            GenContext context = CompileSampleWithExplicitContext(sample);
+
+            GeneratedTypeRecord initType = context.GeneratedArtifacts.Types.SingleOrDefault(
+                t => t.GetRuntimeName(GeneratedArtifactBackend.Persisted) == sample.InitTypeName);
+            GeneratedTypeRecord fnType = context.GeneratedArtifacts.Types.SingleOrDefault(
+                t => t.GetRuntimeName(GeneratedArtifactBackend.Persisted) == sample.NamespaceName + "$inc_answer");
+
+            Assert.That(initType, Is.Not.Null, "Namespace init type should be registered.");
+            Assert.That(fnType, Is.Not.Null, "Generated defn function type should be registered.");
+
+            FieldInfo[] initConstants = PersistedConstantFields(initType);
+            Assert.That(HasPersistedMember(initType, GeneratedMemberKind.Method, "Initialize"), Is.True,
+                "Namespace init type should record Initialize().");
+            Assert.That(HasPersistedMember(initType, GeneratedMemberKind.Method, ObjExpr.StaticCtorHelperName + "_constants"), Is.True,
+                "Namespace init type should record the constants helper method.");
+            Assert.That(HasPersistedMember(initType, GeneratedMemberKind.StaticConstructor, ".cctor"), Is.True,
+                "Namespace init type should record its static constructor.");
+            Assert.That(initConstants, Is.Not.Empty,
+                "Namespace init type should record emitted constant fields.");
+            Assert.That(initConstants.Any(field => field.FieldType == typeof(Var)), Is.True,
+                "Namespace init constants should include emitted Var constants.");
+            Assert.That(initConstants.Any(field => field.FieldType == typeof(Keyword)), Is.True,
+                "Namespace init constants should include emitted Keyword constants.");
+
+            FieldInfo[] fnConstants = PersistedConstantFields(fnType);
+            Assert.That(HasPersistedMember(fnType, GeneratedMemberKind.Constructor, ".ctor"), Is.True,
+                "Generated function type should record its public constructor.");
+            Assert.That(HasPersistedMember(fnType, GeneratedMemberKind.StaticConstructor, ".cctor"), Is.True,
+                "Generated function type should record its static constructor.");
+            Assert.That(HasPersistedMember(fnType, GeneratedMemberKind.Method, "invokeStatic"), Is.True,
+                "Generated function type should record invokeStatic().");
+            Assert.That(HasPersistedMember(fnType, GeneratedMemberKind.Method, "invoke"), Is.True,
+                "Generated function type should record invoke().");
+            Assert.That(HasPersistedMember(fnType, GeneratedMemberKind.Method, "HasArity"), Is.True,
+                "Generated function type should record HasArity().");
+            Assert.That(fnConstants.Any(field => field.FieldType == typeof(Var)), Is.True,
+                "Generated function type should record Var-backed constant fields.");
         }
 
         [Test]
@@ -336,6 +380,28 @@ namespace Clojure.Tests.LibTests
             return member.Id.Kind == GeneratedMemberKind.Method
                 && member.Id.LogicalName == "invokeStatic"
                 && member.EvalMember is MethodInfo;
+        }
+
+        private static bool HasPersistedMember(
+            GeneratedTypeRecord type,
+            GeneratedMemberKind kind,
+            string logicalName)
+        {
+            return type.Members.Values.Any(member =>
+                member.Id.Kind == kind
+                && member.Id.LogicalName == logicalName
+                && member.PersistedMember is not null);
+        }
+
+        private static FieldInfo[] PersistedConstantFields(GeneratedTypeRecord type)
+        {
+            return type.Members.Values
+                .Where(member =>
+                    member.Id.Kind == GeneratedMemberKind.Field
+                    && member.Id.LogicalName.StartsWith(ObjExpr.ConstPrefix, StringComparison.Ordinal)
+                    && member.PersistedMember is FieldInfo)
+                .Select(member => (FieldInfo)member.PersistedMember)
+                .ToArray();
         }
 
         private static bool IsGeneratedHelperRuntimeName(string name)

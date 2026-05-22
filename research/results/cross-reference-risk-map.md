@@ -25,6 +25,12 @@
 | Method bodies call same generated type's static method | `FnMethod.DoEmitStatic` regular `invoke` calls `invokeStatic` | Safe only if both methods are same backend type | Emit method bodies through backend-local method records |
 | Constants containing `Type` values | `ObjExpr.EmitValue` and constant fields | Persisting an eval `System.Type` value for generated type bakes a bad runtime dependency or runtime-only object | Represent generated type constants as logical ids and rehydrate per backend |
 
+## Minimal Constants And Member Mapping
+
+The first milestone namespace init and generated function paths now have an explicit audit in `emitted-member-map.md`. The mapped surface includes namespace `Initialize`, init and function `.cctor` methods, `__static_ctor_helper_constants`, `const__N` fields, Var and Keyword constants, generated function constructors, keyword/protocol/static cache fields, and function invoke helpers.
+
+This narrows the immediate unresolved constant risk to constants whose value is itself a generated `System.Type`. Runtime-library constants such as `Var`, `Keyword`, `Symbol`, strings, numbers, persistent collections, and regexes are safe to recreate independently in each backend as long as the generated fields that store them remain backend-local.
+
 ## Current Minimal Sample Findings
 
 The current minimal sample generated `sample.ns.clj.dll` references only:
