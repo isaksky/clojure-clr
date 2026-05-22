@@ -131,6 +131,11 @@ public class TypeSpecComparer
 [TestFixture]
 public class TypeNameParsingTests
 {
+    private static ArgumentException AssertParseError(string typeName)
+    {
+        return Assert.Throws<ArgumentException>(() => ClrTypeSpec.ParseE(typeName));
+    }
+
     [TestCase("A", "A", "#1")]
     [TestCase("A.B", "A.B", "#2")]
     [TestCase("A\\+B", "A\\+B", "#3")]
@@ -382,7 +387,7 @@ public class TypeNameParsingTests
     [Test]
     public void NestedGenericProcessesTerminatingCharacter()
     {
-        var exn = Assert.Throws<ArgumentException>(() => ClrTypeSpec.Parse("A[T]+B]"));
+        var exn = AssertParseError("A[T]+B]");
         Assert.That(exn.Message, Does.Contain("Unmatched ']'"));
     }
 
@@ -606,14 +611,14 @@ public class TypeNameParsingTests
     [Test]
     public void GenericArg_CannotBeByRef()
     {
-        var exn = Assert.Throws<System.ArgumentException>(() => ClrTypeSpec.Parse("A[B&]"));
+        var exn = AssertParseError("A[B&]");
         Assert.That(exn.Message, Does.Contain("Generic argument can't be byref or pointer type"));
     }
 
     [Test]
     public void GenericArg_CannotBePointer()
     {
-        var exn = Assert.Throws<System.ArgumentException>(() => ClrTypeSpec.Parse("A[B*]"));
+        var exn = AssertParseError("A[B*]");
         Assert.That(exn.Message, Does.Contain("Generic argument can't be byref or pointer type"));
 
     }
@@ -621,7 +626,7 @@ public class TypeNameParsingTests
     [Test]
     public void CannotTakeByRefOfByRef()
     {
-        var exn = Assert.Throws<System.ArgumentException>(() => ClrTypeSpec.Parse("A&&"));
+        var exn = AssertParseError("A&&");
         Assert.That(exn.Message, Does.Contain("Can't have a byref of a byref"));
 
 
@@ -631,80 +636,80 @@ public class TypeNameParsingTests
     [Test]
     public void CannotHavePointerAfterByRef()
     {
-        var exn = Assert.Throws<System.ArgumentException>(() => ClrTypeSpec.Parse("A&*"));
+        var exn = AssertParseError("A&*");
         Assert.That(exn.Message, Does.Contain("Can't have a pointer to a byref type"));
     }
 
     [Test]
     public void CannotHaveMissingCloseBracketInGenericArgumentAssemblyName()
     {
-        var exn = Assert.Throws<System.ArgumentException>(() => ClrTypeSpec.Parse("A[[B, AssemblyB"));
+        var exn = AssertParseError("A[[B, AssemblyB");
         Assert.That(exn.Message, Does.Contain("Unmatched ']' while parsing generic argument assembly name"));
     }
 
     [Test]
     public void ByRefQualifierMustBeLast()
     {
-        var exn = Assert.Throws<System.ArgumentException>(() => ClrTypeSpec.Parse("A&[]"));
+        var exn = AssertParseError("A&[]");
         Assert.That(exn.Message, Does.Contain("Byref qualifier must be the last one of a type"));
     }
 
     [Test]
     public void MissingCharactersAfterLeftBracketIsBad()
     {
-        var exn = Assert.Throws<System.ArgumentException>(() => ClrTypeSpec.Parse("A["));
+        var exn = AssertParseError("A[");
         Assert.That(exn.Message, Does.Contain("Invalid array/generic spec"));
     }
 
     [Test]
     public void CannotHaveGenericArgsAfterArrayOrPointer()
     {
-        var exn = Assert.Throws<System.ArgumentException>(() => ClrTypeSpec.Parse("A[][B]"));
+        var exn = AssertParseError("A[][B]");
         Assert.That(exn.Message, Does.Contain("generic args after array spec or pointer type"));
 
-        exn = Assert.Throws<System.ArgumentException>(() => ClrTypeSpec.Parse("A*[B]"));
+        exn = AssertParseError("A*[B]");
         Assert.That(exn.Message, Does.Contain("generic args after array spec or pointer type"));
     }
 
     [Test]
     public void InvalidGenericArgsSeparator_IsBad()
     {
-        var exn = Assert.Throws<System.ArgumentException>(() => ClrTypeSpec.Parse("A[ [B, AssemblyB ] + C  ]  "));
+        var exn = AssertParseError("A[ [B, AssemblyB ] + C  ]  ");
         Assert.That(exn.Message, Does.Contain("Invalid generic arguments separator"));
     }
 
     [Test]
     public void ErrorParsingGenericParamsSpec_IsBad()
     {
-        var exn = Assert.Throws<System.ArgumentException>(() => ClrTypeSpec.Parse("A[B,"));
+        var exn = AssertParseError("A[B,");
         Assert.That(exn.Message, Does.Contain("Error parsing generic params spec"));
     }
 
     [Test]
     public void TwoBoundDesignatorsInArraySpec_IsBad()
     {
-        var exn = Assert.Throws<System.ArgumentException>(() => ClrTypeSpec.Parse("A[**]"));
+        var exn = AssertParseError("A[**]");
         Assert.That(exn.Message, Does.Contain("Array spec cannot have 2 bound dimensions"));
     }
 
     [Test]
     public void InvalidCharacterInArraySpec_IsBad()
     {
-        var exn = Assert.Throws<System.ArgumentException>(() => ClrTypeSpec.Parse("A[*!]"));
+        var exn = AssertParseError("A[*!]");
         Assert.That(exn.Message, Does.Contain("Invalid character in array spec"));
     }
 
     [Test]
     public void ErrorParsingArraySpec_IsBad()
     {
-        var exn = Assert.Throws<System.ArgumentException>(() => ClrTypeSpec.Parse("A[,"));
+        var exn = AssertParseError("A[,");
         Assert.That(exn.Message, Does.Contain("Error parsing array spec"));
     }
 
     [Test]
     public void CannotHaveBoundAndDimensionTogetherInArraySpec()
     {
-        var exn = Assert.Throws<System.ArgumentException>(() => ClrTypeSpec.Parse("A[*,]"));
+        var exn = AssertParseError("A[*,]");
         Assert.That(exn.Message, Does.Contain("Invalid array spec, multi-dimensional array cannot be bound"));
     }
 
@@ -712,7 +717,7 @@ public class TypeNameParsingTests
     [Test]
     public void UnmatchedRightBracket_IsBad()
     {
-        var exn = Assert.Throws<System.ArgumentException>(() => ClrTypeSpec.Parse("A[]]"));
+        var exn = AssertParseError("A[]]");
         Assert.That(exn.Message, Does.Contain("Unmatched ']'"));
     }
 
@@ -720,7 +725,7 @@ public class TypeNameParsingTests
     [Test]
     public void UnknownCharacterInModifiers_IsBad()
     {
-        var exn = Assert.Throws<System.ArgumentException>(() => ClrTypeSpec.Parse("A*!"));
+        var exn = AssertParseError("A*!");
         Assert.That(exn.Message, Does.Contain("Bad type def"));
     }
 
@@ -732,4 +737,3 @@ public class TypeNameParsingTests
     //    Assert.That(exn.Message, Does.Contain("Unclosed assembly-qualified type name"));
     //}
 }
-
