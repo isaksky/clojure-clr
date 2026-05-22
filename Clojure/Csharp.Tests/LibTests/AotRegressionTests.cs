@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 using clojure.lang;
 using clojure.lang.CljCompiler.Ast;
@@ -61,11 +62,29 @@ namespace Clojure.Tests.LibTests
 (def dynamic-result (stringify-dynamic 42))
 ";
 
+        private const string GenDelegateBody = @"
+(def delegate-hit (atom false))
+(def starter (gen-delegate System.Threading.ThreadStart [] (reset! delegate-hit true)))
+";
+
+        private const string GeneratedInterfaceProtocolBody = @"
+(defprotocol AotProtocol
+  (aot-value [x]))
+
+(extend-protocol AotProtocol
+  System.String
+  (aot-value [x] (str ""string:"" x)))
+
+(def protocol-result (aot-value ""ok""))
+";
+
         private static readonly string[] RuntimeNamespaceTranche =
         [
             "clojure.walk",
             "clojure.template",
-            "clojure.set"
+            "clojure.set",
+            "clojure.string",
+            "clojure.data"
         ];
 
         private static readonly UnsupportedGeneratedFormCase[] UnsupportedGeneratedFormCases =
@@ -87,15 +106,7 @@ namespace Clojure.Tests.LibTests
             new(
                 "proxy",
                 ns => $@"(ns {ns})
-(def writer (proxy [System.IO.StringWriter] []))"),
-            new(
-                "gen-interface",
-                ns => $@"(ns {ns})
-(gen-interface :name {ns}.GeneratedInterface :methods [[m [] Object]])"),
-            new(
-                "gen-delegate",
-                ns => $@"(ns {ns})
-(def starter (gen-delegate System.Threading.ThreadStart [] nil))")
+(def writer (proxy [System.IO.StringWriter] []))")
         ];
 
         [OneTimeSetUp]
@@ -174,6 +185,55 @@ namespace Clojure.Tests.LibTests
             Assert.That(ex.InnerException.Message, Does.Contain("Dynamic host interop is not supported"));
             Assert.That(File.Exists(sample.AssemblyPath), Is.False,
                 "Rejected dynamic host interop forms should not leave a persisted namespace DLL.");
+        }
+
+        [Test]
+        public void ModernPersistedAotSupportsRuntimeGenDelegateWrappers()
+        {
+            using AotSample sample = AotSample.Create(GenDelegateBody);
+            CompileSample(sample);
+
+            ThreadStart starter = (ThreadStart)VarValue(sample, "starter");
+            starter();
+
+            Assert.That(((IDeref)VarValue(sample, "delegate-hit")).deref(), Is.True);
+
+            Assembly assembly = Assembly.LoadFrom(sample.AssemblyPath);
+            Assert.That(assembly.GetReferencedAssemblies().Any(IsEvalOrInternalDynamicReference), Is.False,
+                "Persisted namespace should not reference the runtime-only delegate wrapper assembly.");
+        }
+
+        [Test]
+        public void ModernPersistedAotPairsGeneratedInterfacesAcrossBackends()
+        {
+            using AotSample sample = AotSample.Create(GeneratedInterfaceProtocolBody);
+            GenContext context = CompileSampleWithExplicitContext(sample);
+
+            Assert.That(VarValue(sample, "protocol-result"), Is.EqualTo("string:ok"));
+
+            string interfaceName = sample.NamespaceName + ".AotProtocol";
+            GeneratedTypeRecord interfaceType = context.GeneratedArtifacts.Types.SingleOrDefault(
+                t => t.Id.LogicalName == "gen-interface:" + interfaceName);
+
+            Assert.That(interfaceType, Is.Not.Null,
+                "Generated protocol interface should be recorded as a paired generated artifact.");
+            Assert.That(interfaceType.GetRuntimeName(GeneratedArtifactBackend.Persisted), Is.EqualTo(interfaceName));
+            Assert.That(interfaceType.GetRuntimeName(GeneratedArtifactBackend.Eval), Is.EqualTo(interfaceName));
+            Assert.That(interfaceType.GetCreatedType(GeneratedArtifactBackend.Persisted), Is.Not.Null);
+            Assert.That(interfaceType.GetCreatedType(GeneratedArtifactBackend.Eval), Is.Not.Null);
+            Assert.That(interfaceType.Members.Values.Any(member =>
+                member.Id.Kind == GeneratedMemberKind.Method
+                && member.Id.LogicalName == "aot_value"
+                && member.PersistedMember is MethodInfo
+                && member.EvalMember is MethodInfo), Is.True,
+                "Generated protocol interface method should be recorded for both backends.");
+
+            SaveExplicitContext(context);
+            Assembly assembly = Assembly.LoadFrom(sample.AssemblyPath);
+            Assert.That(assembly.GetType(interfaceName), Is.Not.Null,
+                "Persisted namespace assembly should contain the generated protocol interface.");
+            Assert.That(assembly.GetReferencedAssemblies().Any(IsEvalOrInternalDynamicReference), Is.False,
+                "Generated protocol interface should not introduce transient dynamic assembly references.");
         }
 
         [TestCaseSource(nameof(UnsupportedGeneratedFormCases))]
@@ -393,10 +453,12 @@ namespace Clojure.Tests.LibTests
                 $"Build output for Clojure.Main was not found at {mainAssemblyPath}.");
 
             string script =
-                "(require 'clojure.walk 'clojure.template 'clojure.set) " +
+                "(require 'clojure.walk 'clojure.template 'clojure.set 'clojure.string 'clojure.data) " +
                 "(println (clojure.set/subset? #{:a} #{:a :b})) " +
                 "(println (pr-str (clojure.walk/postwalk-replace {:a :b} [:a {:a :a}]))) " +
-                "(println (pr-str (macroexpand '(clojure.template/do-template [x] x :ok))))";
+                "(println (pr-str (macroexpand '(clojure.template/do-template [x] x :ok)))) " +
+                "(println (clojure.string/replace \"a1b2\" #\"\\d\" (fn [m] (str \"[\" m \"]\")))) " +
+                "(println (= (clojure.data/diff 1 2) [1 2 nil]))";
 
             ProcessResult result = await RunProcessAsync("dotnet", output.CompilePath, startInfo =>
             {
@@ -411,7 +473,7 @@ namespace Clojure.Tests.LibTests
 
             string[] stdoutLines = result.StandardOutput
                 .Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
-            Assert.That(stdoutLines, Is.EqualTo(new[] { "true", "[:b {:b :b}]", "(do :ok)" }),
+            Assert.That(stdoutLines, Is.EqualTo(new[] { "true", "[:b {:b :b}]", "(do :ok)", "a[1]b[2]", "true" }),
                 result.ToFailureMessage("runtime namespace tranche load"));
         }
 
@@ -637,6 +699,13 @@ namespace Clojure.Tests.LibTests
                     && member.PersistedMember is FieldInfo)
                 .Select(member => (FieldInfo)member.PersistedMember)
                 .ToArray();
+        }
+
+        private static void SaveExplicitContext(GenContext context)
+        {
+            typeof(GenContext)
+                .GetMethod("SaveAssembly", BindingFlags.Instance | BindingFlags.NonPublic)
+                .Invoke(context, null);
         }
 
         private static object VarValue(AotSample sample, string varName)

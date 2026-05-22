@@ -22,21 +22,10 @@ namespace clojure.lang
 
         public static Type GenerateInterface(string iName, IPersistentMap attributes, Seqable extends, ISeq methods)
         {
-            Compiler.CheckGeneratedFormAllowedInCurrentContext("gen-interface");
-
             iName = iName.Replace('-', '_');
 
-            GenContext context;
-
-            if (Compiler.IsCompiling)
-            {
-                //string path = (string)Compiler.COMPILE_PATH.deref();
-                //if (path == null)
-                //    throw new Exception("*compile-path* not set");
-                //context = new GenContext(iName, ".dll", path, CompilerMode.File);
-                context = (GenContext)Compiler.CompilerContextVar.deref();
-            }
-            else
+            GenContext context = CurrentAotGenerationContext();
+            if (context is null)
 #if NETFRAMEWORK
                 context = GenContext.CreateWithExternalAssembly(iName+"_"+RT.nextID(), ".dll", false);
 #else
@@ -60,6 +49,10 @@ namespace clojure.lang
                 TypeAttributes.Interface | TypeAttributes.Public | TypeAttributes.Abstract,
                 null,
                 interfaceTypes);
+            GeneratedTypeRecord generatedType = context.RegisterGeneratedType(
+                "gen-interface:" + iName,
+                iName,
+                proxyTB);
 
             // Should we associate source file info?
             // See Java committ 8d6fdb, 2015.07.17, related to CLJ-1645
@@ -67,9 +60,10 @@ namespace clojure.lang
 
             SetCustomAttributes(proxyTB, attributes);
 
-            DefineMethods(proxyTB, methods);
+            DefineMethods(context, generatedType, proxyTB, methods);
 
             Type t = proxyTB.CreateType();
+            context.RegisterGeneratedTypeCreated(generatedType, t);
 
             //if ( Compiler.IsCompiling )
             //    context.SaveAssembly();
@@ -77,6 +71,20 @@ namespace clojure.lang
             Compiler.RegisterDuplicateType(t);
 
             return t;
+        }
+
+        private static GenContext CurrentAotGenerationContext()
+        {
+            if (Compiler.CompilerContextVar.deref() is not GenContext context)
+                return null;
+
+            if (Compiler.IsCompiling)
+                return context;
+
+            GenerationContextPair generationContexts = Compiler.CurrentGenerationContext();
+            return generationContexts is not null && generationContexts.HasPersistedContext
+                ? context
+                : null;
         }
 
         #endregion
@@ -232,13 +240,21 @@ namespace clojure.lang
 
         #region Defining methods
 
-        private static void DefineMethods(TypeBuilder proxyTB, ISeq methods)
+        private static void DefineMethods(
+            GenContext context,
+            GeneratedTypeRecord generatedType,
+            TypeBuilder proxyTB,
+            ISeq methods)
         {
             for (ISeq s = methods?.seq(); s != null; s = s.next())
-                DefineMethod(proxyTB, (IPersistentVector)s.first());
+                DefineMethod(context, generatedType, proxyTB, (IPersistentVector)s.first());
         }
 
-        private static void DefineMethod(TypeBuilder proxyTB, IPersistentVector sig)
+        private static void DefineMethod(
+            GenContext context,
+            GeneratedTypeRecord generatedType,
+            TypeBuilder proxyTB,
+            IPersistentVector sig)
         {
             Symbol mname = (Symbol)sig.nth(0);
             Type[] paramTypes = GenClass.CreateTypeArray((ISeq)sig.nth(1));
@@ -246,6 +262,7 @@ namespace clojure.lang
             ISeq pmetas = (ISeq)(sig.count() >= 4 ? sig.nth(3) : null);
 
             MethodBuilder mb = proxyTB.DefineMethod(mname.Name, MethodAttributes.Abstract | MethodAttributes.Public| MethodAttributes.Virtual, retType, paramTypes);
+            context.RegisterGeneratedMember(generatedType, GeneratedMemberKind.Method, mname.Name, mb);
 
             SetCustomAttributes(mb, GenInterface.ExtractAttributes(RT.meta(mname)));
             int i=1;

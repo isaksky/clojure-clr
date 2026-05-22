@@ -59,5 +59,5 @@ ILRepack, Fody, and coverlet are useful once a Cecil backend exists:
 - Full Cecil backend.
 - Cross-target reference assembly selection through `MetadataLoadContext`.
 - Rich portable PDB/source-link support.
-- `deftype*`, `reify*`, `gen-class`, `proxy`, `gen-interface`, `gen-delegate`.
+- `deftype*`, `reify*`, `gen-class`, and `proxy`.
 - Async method emission beyond current conditional support.

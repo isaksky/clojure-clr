@@ -36,7 +36,9 @@ At EOF, the compiler emits `ret`, constants initialization, the init type static
 | Naked top-level `(let [...])` | Emits expression into init; observed sample generated anonymous fn classes | Eval executes expression immediately for side effects/result discard | Medium: wrappers need paired identity if referenced |
 | `defmacro` then macro use | Macro fn type emitted, Var metadata/root set | Eval must install macro before later macroexpand | High if eval cannot run generated macro |
 | `deftype*`/`reify*` | Generates base and implementation types during analysis | Eval must produce runtime type usable by following forms | High: generated base/main type cross-links |
-| `gen-class`, `proxy`, `gen-interface`, `gen-delegate` | Separate generators define and sometimes save types | Runtime/eval may observe generated `Type` or delegate immediately | High; defer from first milestone |
+| `gen-interface` | Defines an interface during `parse-eval*` | Separate eval emits an eval-side interface before later forms run | Medium; now paired across persisted/eval contexts |
+| `gen-delegate` | Persisted code emits a call to `GenDelegate.Create`; wrapper type is not saved | Runtime/eval creates the exact delegate wrapper when the call executes | Medium; supported as runtime-only generated wrapper |
+| `gen-class`, `proxy` | Separate generators define and sometimes save types | Runtime/eval may observe generated `Type` immediately | High; defer until each has a supported save policy |
 
 ## Replay Boundaries
 

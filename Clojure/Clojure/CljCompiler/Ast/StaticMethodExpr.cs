@@ -37,7 +37,6 @@ namespace clojure.lang.CljCompiler.Ast
         {
             _type = type;
             _method  = Reflector.GetMatchingMethod(spanMap, _type, _args, _methodName, typeArgs,true);
-            CheckGeneratedDelegateCallAllowed();
             if ( _method != null && warnOnBoxedKeyword.Equals(RT.UncheckedMathVar.deref()) && IsBoxedMath(_method))
             {
                 RT.errPrintWriter().WriteLine("Boxed math warning, {0}:{1}:{2} - call {3}.",
@@ -52,17 +51,6 @@ namespace clojure.lang.CljCompiler.Ast
             Compiler.CheckMethodArity(resolvedMethod, RT.count(args));
             _type = type;
             _method = resolvedMethod;
-            CheckGeneratedDelegateCallAllowed();
-        }
-
-        private void CheckGeneratedDelegateCallAllowed()
-        {
-            if (_method is not null
-                && _method.DeclaringType == typeof(clojure.lang.GenDelegate)
-                && _method.Name == nameof(clojure.lang.GenDelegate.Create))
-            {
-                Compiler.CheckGeneratedFormAllowedInCurrentContext("gen-delegate");
-            }
         }
 
         public static bool IsBoxedMath(MethodBase m)

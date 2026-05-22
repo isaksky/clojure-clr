@@ -29,8 +29,8 @@ rg -n "\b(DefineType|DefinePublicType|DefineNestedType|DefineMethod|DefineConstr
 | `NewInstanceMethod` | Generated implementation methods for `deftype*`/`reify*` | Type emission | Yes | Yes | Method override metadata and explicit interface refs | Rejected during persisted AOT first pass |
 | `GenClass` | `gen-class` | Separate compile action | No during normal namespace minimal compile, but generated class may load impl namespace at runtime | Yes, often as standalone `.dll` or `.exe` | Superclass, interfaces, exposed fields, Var static fields | Rejected during persisted AOT first pass |
 | `GenProxy` | `proxy` | Runtime/eval generation, may register during compile | Yes | Possibly, but currently save is commented | Superclass/interfaces and method maps | Rejected during persisted AOT first pass |
-| `GenInterface` | `gen-interface` | Separate compile action | Maybe observed after generation | Yes | Extends interfaces, custom attributes | Rejected during persisted AOT first pass |
-| `GenDelegate` | `gen-delegate` wrapper class around `IFn` | Runtime/eval generation | Yes | Not for first namespace milestone | Delegate signature and wrapper field | Rejected during persisted AOT first pass |
+| `GenInterface` | `gen-interface` | Separate compile action | Maybe observed after generation | Yes | Extends interfaces, methods, custom attributes | Supported for persisted AOT through paired persisted/eval context generation and registry records |
+| `GenDelegate` | `gen-delegate` wrapper class around `IFn` | Runtime/eval generation | Yes | No saved wrapper type; persisted code calls runtime helper | Delegate signature and wrapper field stay runtime-only | Supported for persisted AOT through runtime-only wrapper generation |
 | `MyTypeGen` | Helper wrapper used by `DynInitHelper` | Helper type finalization | Yes if helper is eval-side | Yes if helper is persisted-side | Static call-site fields and methods | Covered by `DynInitHelper` |
 | `MyAssemblyGen.MakeDelegateType` | Generic delegate type factory | Helper generation | Yes for run assemblies | Yes for persisted assemblies | Delegate constructor/invoke method implementation flags | Defer unless host interop required |
 | `GenContext.AddInternalAssembly` | Dummy type/method used to identify runtime dynamic assemblies | Internal eval-context creation | Yes | No | No user references intended | Required only for direct-link safety |
@@ -39,7 +39,7 @@ rg -n "\b(DefineType|DefinePublicType|DefineNestedType|DefineMethod|DefineConstr
 ## Reference Flow Observations
 
 - `ObjExpr.Compile` finalizes function types immediately with `CreateType`; the same analyzed node cannot later be safely rebound to another backend without a member map.
-- `DoSeparateEval` resets `CompilerContextVar` to `null`, so eval uses the normal eval context rather than the persisted compile context.
+- `DoSeparateEval` resets `CompilerContextVar` to the paired eval context, so eval-side generated artifacts can be recorded without using persisted types.
 - `RegisterDirectLink` stores `Var -> Type`, currently a single `Type` value. For paired generation it must become backend-aware or be disabled while compiling persisted code.
 - `RegisterDuplicateType` already separates `_compilerTypeMap` and `_evalTypeMap` on non-.NET Framework builds, but this is name-to-Type only and does not map members.
 - `DynInitHelper.MakeDelegateType` is a known persisted-assembly edge because delegate `.ctor` and `Invoke` normally rely on `MethodImplAttributes.Runtime`. Modern persisted AOT now rejects dynamic host interop before this path emits helper delegates.

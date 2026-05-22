@@ -37,14 +37,14 @@ First-pass policy: `deftype*` and `reify*` are rejected during modern .NET persi
 
 ## Required For `gen-class`, `proxy`, `gen-interface`, `gen-delegate`
 
-First-pass policy: `gen-class`, `proxy`, `gen-interface`, and `gen-delegate` are rejected during modern .NET persisted AOT compilation. The current generators either save through separate assembly lifecycles or create runtime-observable wrapper/proxy types, so the persisted namespace path must not include them until each generator has a backend-aware pairing or a documented runtime-only representation.
+Current policy: `gen-interface` is supported during modern .NET persisted AOT by generating the interface into the active persisted context and into the paired eval context, recording the generated interface type and methods in `GeneratedArtifactRegistry`. `gen-delegate` calls are supported as a runtime-only save policy: persisted code calls `GenDelegate.Create`, and the exact delegate wrapper type is generated later at namespace load or function invocation time, so saved namespace DLLs do not reference the transient wrapper assembly. `gen-class` and `proxy` remain rejected until their separate class/proxy lifecycles have equivalent backend-aware policies.
 
 | File | Change | Dependency | Risk | Fallback |
 | --- | --- | --- | --- | --- |
 | `GenClass.cs` | Decide whether it remains a separate save pipeline or joins paired AOT backend. Current first-pass guard rejects `gen-class` in persisted AOT contexts. | Backend abstraction | Standalone class output has different lifecycle | Defer and document unsupported in first pass |
-| `GenProxy.cs` | Separate runtime proxy generation from persisted proxy generation. Current first-pass guard rejects `proxy` class generation in persisted AOT contexts. | Type pair registry | Proxy types are usually needed immediately | Runtime-only for first pass |
-| `GenInterface.cs` | Pair generated interface definitions and custom attributes. Current first-pass guard rejects `gen-interface` in persisted AOT contexts. | Type pair registry | Interfaces may be referenced by later generated classes | Defer |
-| `GenDelegate.cs` | Pair wrapper class generation or keep runtime-only. Current first-pass guard rejects `gen-delegate` calls in persisted AOT contexts. | Type pair registry | Delegate reflection shape must remain exact | Runtime-only for first pass |
+| `GenProxy.cs` | Separate runtime proxy generation from persisted proxy generation. Current first-pass guard rejects `proxy` class generation in persisted AOT contexts. | Type pair registry | Proxy types are usually needed immediately | Runtime-only or paired policy still required |
+| `GenInterface.cs` | Pair generated interface definitions, methods, and custom attributes across persisted/eval contexts. Implemented for protocol-style generated interfaces; registry coverage verifies type and method pairs. | Type pair registry | Interfaces may be referenced by later generated classes | Supported for current runtime namespace tranche |
+| `GenDelegate.cs` / `StaticMethodExpr.cs` | Keep wrapper classes runtime-only. Persisted AOT may emit calls to `GenDelegate.Create`; executing the helper during persisted analysis remains guarded. | Runtime helper policy | Delegate reflection shape must remain exact without saving wrapper types | Supported as runtime-only |
 
 ## Debug Symbols And Target Frameworks
 

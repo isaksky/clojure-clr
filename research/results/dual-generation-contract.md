@@ -84,8 +84,6 @@ Explicitly defer:
 - `reify*`
 - `gen-class`
 - `proxy`
-- `gen-interface`
-- `gen-delegate`
 - async method flags
 - debug symbols beyond current persisted save behavior
 - cross-target reference assembly support

@@ -104,11 +104,13 @@ The `net9.0+` NUnit AOT regression fixture now covers the minimal namespace gate
 - `MinimalNamespaceAotPassesReflectionInspection` loads the persisted DLL with reflection, checks the namespace initializer and generated function class, and rejects references to transient eval/internal dynamic assemblies.
 - `MinimalNamespaceAotLoadsWithoutSourceInFreshProcess` deletes the source tree, starts `Clojure.Main` in a fresh `dotnet` process from the compile output directory, and requires the compiled namespace to produce `42` and `:loaded`.
 - `ProgressiveMacroAotPreservesCompileTimeMacroAndLaterFormDependencies` and `ProgressiveMacroAotLoadsWithoutSourceInFreshProcess` compile a macro/progressive-eval fixture where a later macro expansion depends on an earlier top-level `def`, then require the generated DLL from a fresh process.
-- `RuntimeNamespaceTrancheAotProducesPersistedAssemblies` compiles `clojure.walk`, `clojure.template`, and `clojure.set` into a temporary output directory, loads each persisted assembly with reflection, checks its initializer, and rejects transient eval/internal dynamic assembly references.
-- `RuntimeNamespaceTrancheAotLoadsInFreshProcess` requires the same runtime namespace tranche from a fresh `Clojure.Main` process with `CLOJURE_LOAD_PATH` set to the compile output and exercises representative `clojure.set`, `clojure.walk`, and `clojure.template` behavior.
+- `ModernPersistedAotSupportsRuntimeGenDelegateWrappers` verifies the `gen-delegate` runtime-only policy: saved code calls `GenDelegate.Create`, the delegate wrapper is created at runtime, and the persisted namespace DLL does not reference the wrapper assembly.
+- `ModernPersistedAotPairsGeneratedInterfacesAcrossBackends` verifies `gen-interface` pairing through a protocol fixture, including persisted/eval generated type records and generated interface methods.
+- `RuntimeNamespaceTrancheAotProducesPersistedAssemblies` compiles `clojure.walk`, `clojure.template`, `clojure.set`, `clojure.string`, and `clojure.data` into a temporary output directory, loads each persisted assembly with reflection, checks its initializer, and rejects transient eval/internal dynamic assembly references.
+- `RuntimeNamespaceTrancheAotLoadsInFreshProcess` requires the same runtime namespace tranche from a fresh `Clojure.Main` process with `CLOJURE_LOAD_PATH` set to the compile output and exercises representative `clojure.set`, `clojure.walk`, `clojure.template`, `clojure.string`, and `clojure.data` behavior.
 - `MinimalNamespaceAotPassesIlVerifyWhenConfigured` runs only when `CLOJURE_AOT_ILVERIFY` points to an `ilverify` executable. Local runs may leave it unset; CI should install `dotnet-ilverify`, set this variable, and fail the test if verification fails.
 
-The first broader standard-namespace probes found the expected generated-form boundary: `clojure.string` reaches `gen-delegate`, and `clojure.data` reaches `gen-interface`. Those namespaces should remain outside the first runtime tranche until generated-form families have backend-aware persisted/eval pairing.
+The first generated-form expansion beyond the original tranche is now covered: `clojure.string` reaches `gen-delegate` and uses the runtime-only wrapper policy, while `clojure.data` reaches `gen-interface` through protocols and uses paired persisted/eval interface generation.
 
 ## Future CI Gates
 
@@ -116,5 +118,5 @@ The first broader standard-namespace probes found the expected generated-form bo
 - No eval execution dependency on a persisted generated type before save/load.
 - Later forms observe earlier compile-time effects.
 - Generated DLL loads without source.
-- Expand the runtime namespace tranche beyond `clojure.walk`, `clojure.template`, and `clojure.set` after generated-form pairing unlocks `gen-delegate` and `gen-interface`.
+- Keep expanding the runtime namespace tranche after `deftype*`/`reify*`, `gen-class`, `proxy`, and dynamic host interop policies are implemented or explicitly excluded for each candidate namespace.
 - `deftype*`/`reify*` tests stay excluded or explicitly fail with a documented unsupported-feature error until implemented.
