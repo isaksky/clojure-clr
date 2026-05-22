@@ -240,6 +240,19 @@ public sealed class GeneratedArtifactRegistry
         return record;
     }
 
+    public GeneratedTypeRecord RegisterTypeBuilder(
+        GeneratedArtifactBackend backend,
+        GeneratedTypeId id,
+        string runtimeName,
+        TypeBuilder builder)
+    {
+        if (!_types.TryGetValue(id, out GeneratedTypeRecord record))
+            throw new InvalidOperationException($"Generated type id {id} has not been declared.");
+
+        record.SetTypeBuilder(backend, runtimeName, builder);
+        return record;
+    }
+
     public void RegisterCreatedType(GeneratedArtifactBackend backend, GeneratedTypeId id, Type type)
     {
         if (!_types.TryGetValue(id, out GeneratedTypeRecord record))

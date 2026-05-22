@@ -343,8 +343,7 @@ namespace clojure.lang.CljCompiler.Ast
 
             //Type returnType = ReturnType;
 
-            MethodBuilder baseMB = tb.DefineMethod(methodName, attribs, returnType, _argTypes);
-            fn.RegisterGeneratedMember(GeneratedMemberKind.Method, methodName, baseMB);
+            MethodBuilder baseMB = fn.DefineGeneratedMethod(tb, methodName, attribs, returnType, _argTypes);
 
 #if NET11_0_OR_GREATER
             if (IsAsync)
@@ -377,8 +376,7 @@ namespace clojure.lang.CljCompiler.Ast
 
             // Generate the regular invoke, calling the static method
             {
-                MethodBuilder regularMB = tb.DefineMethod(MethodName, MethodAttributes.ReuseSlot | MethodAttributes.Public | MethodAttributes.Virtual, typeof(Object), ArgTypes);
-                fn.RegisterGeneratedMember(GeneratedMemberKind.Method, MethodName, regularMB);
+                MethodBuilder regularMB = fn.DefineGeneratedMethod(tb, MethodName, MethodAttributes.ReuseSlot | MethodAttributes.Public | MethodAttributes.Virtual, typeof(Object), ArgTypes);
                 SetCustomAttributes(regularMB);
 
                 CljILGen regIlg = new(regularMB.GetILGenerator());
@@ -410,8 +408,7 @@ namespace clojure.lang.CljCompiler.Ast
                 else
                     primReturnType = typeof(object);
 
-                MethodBuilder primMB = tb.DefineMethod(primMethodName, primAttribs, primReturnType, _argTypes);
-                fn.RegisterGeneratedMember(GeneratedMemberKind.Method, primMethodName, primMB);
+                MethodBuilder primMB = fn.DefineGeneratedMethod(tb, primMethodName, primAttribs, primReturnType, _argTypes);
                 SetCustomAttributes(primMB);
 
                 CljILGen primIlg = new(primMB.GetILGenerator());
@@ -438,8 +435,7 @@ namespace clojure.lang.CljCompiler.Ast
             else
                 returnType = typeof(object);
 
-            MethodBuilder baseMB = tb.DefineMethod(methodName, attribs, returnType, _argTypes);
-            fn.RegisterGeneratedMember(GeneratedMemberKind.Method, methodName, baseMB);
+            MethodBuilder baseMB = fn.DefineGeneratedMethod(tb, methodName, attribs, returnType, _argTypes);
 
             SetCustomAttributes(baseMB);
 
@@ -464,8 +460,7 @@ namespace clojure.lang.CljCompiler.Ast
 
             // Generate the regular invoke, calling the prim method
 
-            MethodBuilder regularMB = tb.DefineMethod(MethodName, MethodAttributes.ReuseSlot | MethodAttributes.Public | MethodAttributes.Virtual, typeof(Object), ArgTypes);
-            fn.RegisterGeneratedMember(GeneratedMemberKind.Method, MethodName, regularMB);
+            MethodBuilder regularMB = fn.DefineGeneratedMethod(tb, MethodName, MethodAttributes.ReuseSlot | MethodAttributes.Public | MethodAttributes.Virtual, typeof(Object), ArgTypes);
             SetCustomAttributes(regularMB);
 
             CljILGen regIlg = new(regularMB.GetILGenerator());
@@ -492,8 +487,7 @@ namespace clojure.lang.CljCompiler.Ast
             }
 #endif
             MethodAttributes attribs = MethodAttributes.ReuseSlot | MethodAttributes.Public | MethodAttributes.Virtual;
-            MethodBuilder mb = tb.DefineMethod(MethodName, attribs, ReturnType, ArgTypes);
-            fn.RegisterGeneratedMember(GeneratedMemberKind.Method, MethodName, mb);
+            MethodBuilder mb = fn.DefineGeneratedMethod(tb, MethodName, attribs, ReturnType, ArgTypes);
             SetCustomAttributes(mb);
 
             CljILGen baseIlg = new(mb.GetILGenerator());
@@ -527,12 +521,12 @@ namespace clojure.lang.CljCompiler.Ast
             // This method gets the 0x2000 async flag and contains the real body with await* calls.
 
             Type asyncReturnType = typeof(System.Threading.Tasks.Task<object>);
-            MethodBuilder asyncMB = tb.DefineMethod(
+            MethodBuilder asyncMB = fn.DefineGeneratedMethod(
+                tb,
                 MethodName + "Async",
                 MethodAttributes.Private,
                 asyncReturnType,
                 ArgTypes);
-            fn.RegisterGeneratedMember(GeneratedMemberKind.Method, MethodName + "Async", asyncMB);
 
             asyncMB.SetImplementationFlags(
                 asyncMB.GetMethodImplementationFlags() | (MethodImplAttributes)MethodImplOptions.Async);
@@ -559,8 +553,7 @@ namespace clojure.lang.CljCompiler.Ast
             // Generate the IFn.invoke() override: invoke() -> object
             // This wrapper calls invokeAsync() and returns the Task<object> as object.
             MethodAttributes attribs = MethodAttributes.ReuseSlot | MethodAttributes.Public | MethodAttributes.Virtual;
-            MethodBuilder invokeMB = tb.DefineMethod(MethodName, attribs, typeof(object), ArgTypes);
-            fn.RegisterGeneratedMember(GeneratedMemberKind.Method, MethodName, invokeMB);
+            MethodBuilder invokeMB = fn.DefineGeneratedMethod(tb, MethodName, attribs, typeof(object), ArgTypes);
             SetCustomAttributes(invokeMB);
 
             CljILGen invokeIlg = new(invokeMB.GetILGenerator());

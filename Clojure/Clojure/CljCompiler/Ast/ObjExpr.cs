@@ -115,6 +115,7 @@ namespace clojure.lang.CljCompiler.Ast
         public static String ThunkNameStatic(int n) => ThunkName(n) + "__";
         internal static String CachedClassName(int n) => "__cached_class__" + n;
         private static string ConstantName(int i) => ConstPrefix + i;
+        private static readonly Regex GeneratedIdSegmentPattern = new("__[0-9]+(?=__|\\$|$)", RegexOptions.Compiled);
 
         private Type ConstantType(int i)
         {
@@ -166,6 +167,13 @@ namespace clojure.lang.CljCompiler.Ast
         {
             int i = name.LastIndexOf("__");
             return i == -1 ? name : name.Substring(0, i);
+        }
+
+        public static string GeneratedLogicalName(string name)
+        {
+            return string.IsNullOrEmpty(name)
+                ? name
+                : GeneratedIdSegmentPattern.Replace(name, string.Empty);
         }
 
         internal Type[] CtorTypes()
@@ -253,8 +261,9 @@ namespace clojure.lang.CljCompiler.Ast
             string publicTypeName = IsDefType ? InternalName : InternalName + "__" + RT.nextID();
 #endif
 
+            GeneratedType ??= context.DeclareGeneratedType(GeneratedLogicalName(InternalName), publicTypeName);
             TypeBuilder = context.AssemblyGen.DefinePublicType(publicTypeName, superType, true);
-            GeneratedType = context.RegisterGeneratedType(InternalName, publicTypeName, TypeBuilder);
+            GeneratedType = context.RegisterGeneratedType(GeneratedType, publicTypeName, TypeBuilder);
             context = context.WithNewDynInitHelper().WithTypeBuilder(TypeBuilder);
 
             Var.pushThreadBindings(RT.map(Compiler.CompilerContextVar, context));
@@ -1169,6 +1178,18 @@ namespace clojure.lang.CljCompiler.Ast
         {
             if (GeneratedType is not null && Compiler.CompilerContextVar.deref() is GenContext context)
                 context.RegisterGeneratedMember(GeneratedType, kind, logicalName, member);
+        }
+
+        internal MethodBuilder DefineGeneratedMethod(
+            TypeBuilder tb,
+            string logicalName,
+            MethodAttributes attributes,
+            Type returnType,
+            Type[] parameterTypes)
+        {
+            MethodBuilder mb = tb.DefineMethod(logicalName, attributes, returnType, parameterTypes);
+            RegisterGeneratedMember(GeneratedMemberKind.Method, logicalName, mb);
+            return mb;
         }
 
         protected static MethodBuilder EmitHasArityMethod(TypeBuilder tb, IList<int> arities, bool isVariadic, int reqArity)

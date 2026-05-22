@@ -334,12 +334,33 @@ namespace clojure.lang.CljCompiler.Context
             return newContext;
         }
 
+        public GeneratedTypeRecord DeclareGeneratedType(string logicalName, string runtimeName = null)
+        {
+            return _generatedArtifacts.DeclareType(
+                ArtifactBackend,
+                CurrentGeneratedSourcePath(),
+                logicalName,
+                runtimeName);
+        }
+
         public GeneratedTypeRecord RegisterGeneratedType(string logicalName, string runtimeName, TypeBuilder builder)
         {
             return _generatedArtifacts.RegisterTypeBuilder(
                 ArtifactBackend,
                 CurrentGeneratedSourcePath(),
                 logicalName,
+                runtimeName,
+                builder);
+        }
+
+        public GeneratedTypeRecord RegisterGeneratedType(GeneratedTypeRecord record, string runtimeName, TypeBuilder builder)
+        {
+            if (record is null)
+                throw new ArgumentNullException(nameof(record));
+
+            return _generatedArtifacts.RegisterTypeBuilder(
+                ArtifactBackend,
+                record.Id,
                 runtimeName,
                 builder);
         }

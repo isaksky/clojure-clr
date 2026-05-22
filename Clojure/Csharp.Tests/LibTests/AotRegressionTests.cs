@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using clojure.lang;
 using clojure.lang.CljCompiler.Context;
@@ -26,6 +27,9 @@ namespace Clojure.Tests.LibTests
   (inc answer))
 
 (def invoked (inc-answer))
+
+(def named-local-fn (fn helper [] 7))
+(def named-local-result (named-local-fn))
 
 (let [x 5]
   (+ x invoked))
@@ -56,6 +60,7 @@ namespace Clojure.Tests.LibTests
             Assert.That(initialize, Is.Not.Null, "Namespace initializer should expose public static Initialize().");
 
             Assert.That(Var.find(Symbol.intern(sample.NamespaceName, "invoked")).deref(), Is.EqualTo(42));
+            Assert.That(Var.find(Symbol.intern(sample.NamespaceName, "named-local-result")).deref(), Is.EqualTo(7));
             Assert.That(Var.find(Symbol.intern(sample.NamespaceName, "after-let")).deref(), Is.EqualTo(Keyword.intern(null, "loaded")));
         }
 
@@ -141,6 +146,31 @@ namespace Clojure.Tests.LibTests
                 "Separate eval pass should record the runnable eval function type on the same logical artifact.");
             Assert.That(fnType.Members.Values.Any(IsEvalInvokeStaticMethod), Is.True,
                 "Separate eval pass should record eval-side invokeStatic().");
+        }
+
+        [Test]
+        public void MinimalNamespaceAotPairsGeneratedFunctionClassIdentitiesWithBackendLocalNames()
+        {
+            using AotSample sample = AotSample.Create();
+            GenContext persistedContext = CompileSampleWithExplicitContext(sample);
+
+            GeneratedTypeRecord helperType = persistedContext.GeneratedArtifacts.Types.SingleOrDefault(type =>
+                IsGeneratedHelperRuntimeName(type.GetRuntimeName(GeneratedArtifactBackend.Persisted))
+                && IsGeneratedHelperRuntimeName(type.GetRuntimeName(GeneratedArtifactBackend.Eval)));
+
+            Assert.That(helperType, Is.Not.Null,
+                "Named function literals should share one logical artifact across persisted and eval passes."
+                + Environment.NewLine
+                + DumpGeneratedTypes(persistedContext));
+            Assert.That(helperType.GetRuntimeName(GeneratedArtifactBackend.Persisted),
+                Is.Not.EqualTo(helperType.GetRuntimeName(GeneratedArtifactBackend.Eval)),
+                "Runtime names can keep backend-local RT.nextID suffixes.");
+            Assert.That(Regex.IsMatch(helperType.Id.LogicalName, @"__\d+(?=__|\$|$)"), Is.False,
+                "Logical generated type ids should not include backend-local RT.nextID suffixes.");
+            Assert.That(helperType.GetTypeBuilder(GeneratedArtifactBackend.Persisted), Is.Not.Null);
+            Assert.That(helperType.GetTypeBuilder(GeneratedArtifactBackend.Eval), Is.Not.Null);
+            Assert.That(helperType.GetCreatedType(GeneratedArtifactBackend.Persisted), Is.Not.Null);
+            Assert.That(helperType.GetCreatedType(GeneratedArtifactBackend.Eval), Is.Not.Null);
         }
 
         [Test]
@@ -306,6 +336,19 @@ namespace Clojure.Tests.LibTests
             return member.Id.Kind == GeneratedMemberKind.Method
                 && member.Id.LogicalName == "invokeStatic"
                 && member.EvalMember is MethodInfo;
+        }
+
+        private static bool IsGeneratedHelperRuntimeName(string name)
+        {
+            return name is not null && Regex.IsMatch(name, @"\$helper__\d+(?=__|\$|$)");
+        }
+
+        private static string DumpGeneratedTypes(GenContext context)
+        {
+            return string.Join(
+                Environment.NewLine,
+                context.GeneratedArtifacts.Types.Select(type =>
+                    $"{type.Id.LogicalName} | persisted={type.GetRuntimeName(GeneratedArtifactBackend.Persisted) ?? "<none>"} | eval={type.GetRuntimeName(GeneratedArtifactBackend.Eval) ?? "<none>"}"));
         }
 
         private static bool IsEvalOrInternalDynamicReference(AssemblyName reference)

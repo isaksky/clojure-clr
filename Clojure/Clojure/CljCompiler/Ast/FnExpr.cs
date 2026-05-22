@@ -118,6 +118,8 @@ namespace clojure.lang.CljCompiler.Ast
             }
 
             fn.ComputeNames(form, name);
+            GenContext context = Compiler.CompilerContextVar.deref() as GenContext ?? Compiler.EvalContext;
+            fn.GeneratedType = context.DeclareGeneratedType(GeneratedLogicalName(fn.InternalName));
 
             List<string> prims = [];
 
@@ -136,7 +138,6 @@ namespace clojure.lang.CljCompiler.Ast
                 form = RT.list(Compiler.FnSym, RT.next(form));
 
             fn.SpanMap = (IPersistentMap)Compiler.SourceSpanVar.deref();
-            GenContext context = Compiler.CompilerContextVar.deref() as GenContext ?? Compiler.EvalContext;
             GenContext newContext = context.WithNewDynInitHelper(fn.InternalName + "__dynInitHelper_" + RT.nextID().ToString());
             Var.pushThreadBindings(RT.map(Compiler.CompilerContextVar, newContext));
 
