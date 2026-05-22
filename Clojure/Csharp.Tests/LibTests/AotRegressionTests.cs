@@ -61,6 +61,13 @@ namespace Clojure.Tests.LibTests
 (def dynamic-result (stringify-dynamic 42))
 ";
 
+        private static readonly string[] RuntimeNamespaceTranche =
+        [
+            "clojure.walk",
+            "clojure.template",
+            "clojure.set"
+        ];
+
         private static readonly UnsupportedGeneratedFormCase[] UnsupportedGeneratedFormCases =
         [
             new(
@@ -351,6 +358,64 @@ namespace Clojure.Tests.LibTests
         }
 
         [Test]
+        public void RuntimeNamespaceTrancheAotProducesPersistedAssemblies()
+        {
+            using AotCompileOutput output = AotCompileOutput.Create();
+            CompileRuntimeNamespaces(RuntimeNamespaceTranche, output.CompilePath);
+
+            foreach (string namespaceName in RuntimeNamespaceTranche)
+            {
+                string assemblyPath = output.GetAssemblyPath(namespaceName);
+                Assert.That(File.Exists(assemblyPath), Is.True,
+                    $"{namespaceName} should produce a persisted namespace DLL.");
+
+                Assembly assembly = Assembly.LoadFrom(assemblyPath);
+                AssemblyName[] references = assembly.GetReferencedAssemblies();
+                Type initType = assembly.GetType(GetInitTypeName(namespaceName));
+
+                Assert.That(references.Any(IsEvalOrInternalDynamicReference), Is.False,
+                    $"{namespaceName} must not reference transient eval/internal dynamic assemblies.");
+                Assert.That(initType, Is.Not.Null,
+                    $"{namespaceName} should contain the namespace initializer type.");
+                Assert.That(initType.GetMethod("Initialize", BindingFlags.Public | BindingFlags.Static), Is.Not.Null,
+                    $"{namespaceName} initializer should expose public static Initialize().");
+            }
+        }
+
+        [Test]
+        public async Task RuntimeNamespaceTrancheAotLoadsInFreshProcess()
+        {
+            using AotCompileOutput output = AotCompileOutput.Create();
+            CompileRuntimeNamespaces(RuntimeNamespaceTranche, output.CompilePath);
+
+            string mainAssemblyPath = GetBuiltProjectAssemblyPath("Clojure.Main", "Clojure.Main.dll");
+            Assert.That(File.Exists(mainAssemblyPath), Is.True,
+                $"Build output for Clojure.Main was not found at {mainAssemblyPath}.");
+
+            string script =
+                "(require 'clojure.walk 'clojure.template 'clojure.set) " +
+                "(println (clojure.set/subset? #{:a} #{:a :b})) " +
+                "(println (pr-str (clojure.walk/postwalk-replace {:a :b} [:a {:a :a}]))) " +
+                "(println (pr-str (macroexpand '(clojure.template/do-template [x] x :ok))))";
+
+            ProcessResult result = await RunProcessAsync("dotnet", output.CompilePath, startInfo =>
+            {
+                startInfo.ArgumentList.Add(mainAssemblyPath);
+                startInfo.ArgumentList.Add("-e");
+                startInfo.ArgumentList.Add(script);
+                startInfo.Environment["DOTNET_ROLL_FORWARD"] = "Major";
+                startInfo.Environment[RT.ClojureLoadPathString] = output.CompilePath;
+            });
+
+            Assert.That(result.ExitCode, Is.EqualTo(0), result.ToFailureMessage("runtime namespace tranche load"));
+
+            string[] stdoutLines = result.StandardOutput
+                .Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+            Assert.That(stdoutLines, Is.EqualTo(new[] { "true", "[:b {:b :b}]", "(do :ok)" }),
+                result.ToFailureMessage("runtime namespace tranche load"));
+        }
+
+        [Test]
         public async Task MinimalNamespaceAotLoadsWithoutSourceInFreshProcess()
         {
             using AotSample sample = AotSample.Create();
@@ -494,6 +559,43 @@ namespace Clojure.Tests.LibTests
             }
         }
 
+        private static void CompileRuntimeNamespaces(string[] namespaceNames, string compilePath)
+        {
+            string previousLoadPath = Environment.GetEnvironmentVariable(RT.ClojureLoadPathString);
+            string sourceRoot = Path.Combine(GetRepoRoot(), "Clojure.Source");
+            string testLoadPath = string.IsNullOrEmpty(previousLoadPath)
+                ? sourceRoot
+                : sourceRoot + Path.PathSeparator + previousLoadPath;
+
+            Var compilerOptionsVar = Var.find(Symbol.intern("clojure.core", "*compiler-options*"));
+            object compilerOptions = RT.assoc(
+                compilerOptionsVar.deref(),
+                Keyword.intern(null, "direct-linking"),
+                false);
+
+            try
+            {
+                Environment.SetEnvironmentVariable(RT.ClojureLoadPathString, testLoadPath);
+                Var.pushThreadBindings(RT.map(
+                    Compiler.CompilePathVar, compilePath,
+                    compilerOptionsVar, compilerOptions));
+
+                try
+                {
+                    foreach (string namespaceName in namespaceNames)
+                        Compiler.CompileVar.invoke(Symbol.intern(namespaceName));
+                }
+                finally
+                {
+                    Var.popThreadBindings();
+                }
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable(RT.ClojureLoadPathString, previousLoadPath);
+            }
+        }
+
         private static bool IsPersistedInitializeMethod(GeneratedMemberRecord member)
         {
             return member.Id.Kind == GeneratedMemberKind.Method
@@ -578,6 +680,11 @@ namespace Clojure.Tests.LibTests
                 || name.StartsWith("eval", StringComparison.OrdinalIgnoreCase)
                 || name.Contains("InternalDynamic", StringComparison.OrdinalIgnoreCase)
                 || name.Contains("DynamicMethods", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string GetInitTypeName(string namespaceName)
+        {
+            return "__Init__$" + namespaceName.Replace(".", "$");
         }
 
         private static string GetBuiltProjectAssemblyPath(string projectName, string assemblyFileName)
@@ -667,7 +774,7 @@ namespace Clojure.Tests.LibTests
             public string SourcePath { get; }
             public string SourceFileName { get; }
             public string RelativePath { get; }
-            public string InitTypeName => "__Init__$" + NamespaceName.Replace(".", "$");
+            public string InitTypeName => GetInitTypeName(NamespaceName);
 
             public static AotSample Create(string body = SampleBody)
             {
@@ -706,6 +813,36 @@ namespace Clojure.Tests.LibTests
             {
                 if (Directory.Exists(SourceRoot))
                     Directory.Delete(SourceRoot, true);
+            }
+
+            public void Dispose()
+            {
+                try { Directory.Delete(WorkDir, true); } catch { }
+            }
+        }
+
+        private sealed class AotCompileOutput : IDisposable
+        {
+            private AotCompileOutput(string workDir, string compilePath)
+            {
+                WorkDir = workDir;
+                CompilePath = compilePath;
+            }
+
+            public string WorkDir { get; }
+            public string CompilePath { get; }
+
+            public static AotCompileOutput Create()
+            {
+                string workDir = Path.Combine(Path.GetTempPath(), "clj-aot-runtime-test-" + Guid.NewGuid().ToString("N"));
+                string compilePath = Path.Combine(workDir, "out");
+                Directory.CreateDirectory(compilePath);
+                return new AotCompileOutput(workDir, compilePath);
+            }
+
+            public string GetAssemblyPath(string namespaceName)
+            {
+                return Path.Combine(CompilePath, namespaceName + ".clj.dll");
             }
 
             public void Dispose()

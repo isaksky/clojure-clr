@@ -103,13 +103,18 @@ The `net9.0+` NUnit AOT regression fixture now covers the minimal namespace gate
 
 - `MinimalNamespaceAotPassesReflectionInspection` loads the persisted DLL with reflection, checks the namespace initializer and generated function class, and rejects references to transient eval/internal dynamic assemblies.
 - `MinimalNamespaceAotLoadsWithoutSourceInFreshProcess` deletes the source tree, starts `Clojure.Main` in a fresh `dotnet` process from the compile output directory, and requires the compiled namespace to produce `42` and `:loaded`.
+- `ProgressiveMacroAotPreservesCompileTimeMacroAndLaterFormDependencies` and `ProgressiveMacroAotLoadsWithoutSourceInFreshProcess` compile a macro/progressive-eval fixture where a later macro expansion depends on an earlier top-level `def`, then require the generated DLL from a fresh process.
+- `RuntimeNamespaceTrancheAotProducesPersistedAssemblies` compiles `clojure.walk`, `clojure.template`, and `clojure.set` into a temporary output directory, loads each persisted assembly with reflection, checks its initializer, and rejects transient eval/internal dynamic assembly references.
+- `RuntimeNamespaceTrancheAotLoadsInFreshProcess` requires the same runtime namespace tranche from a fresh `Clojure.Main` process with `CLOJURE_LOAD_PATH` set to the compile output and exercises representative `clojure.set`, `clojure.walk`, and `clojure.template` behavior.
 - `MinimalNamespaceAotPassesIlVerifyWhenConfigured` runs only when `CLOJURE_AOT_ILVERIFY` points to an `ilverify` executable. Local runs may leave it unset; CI should install `dotnet-ilverify`, set this variable, and fail the test if verification fails.
+
+The first broader standard-namespace probes found the expected generated-form boundary: `clojure.string` reaches `gen-delegate`, and `clojure.data` reaches `gen-interface`. Those namespaces should remain outside the first runtime tranche until generated-form families have backend-aware persisted/eval pairing.
 
 ## Future CI Gates
 
 - No persisted assembly reference to eval assembly.
 - No eval execution dependency on a persisted generated type before save/load.
 - Later forms observe earlier compile-time effects.
-- Macro definition followed by macro use in same namespace works.
 - Generated DLL loads without source.
+- Expand the runtime namespace tranche beyond `clojure.walk`, `clojure.template`, and `clojure.set` after generated-form pairing unlocks `gen-delegate` and `gen-interface`.
 - `deftype*`/`reify*` tests stay excluded or explicitly fail with a documented unsupported-feature error until implemented.
