@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1"><!-- Begin Jekyll SEO tag v2.8.0 -->
+<title>AOT compilation issues | ClojureCLR - Next!</title>
+<meta name="generator" content="Jekyll v3.10.0" />
+<meta property="og:title" content="AOT compilation issues" />
+<meta property="og:locale" content="en_US" />
+<meta name="description" content="A look at the issues involved in restoring AOT compilation to ClojureCLR." />
+<meta property="og:description" content="A look at the issues involved in restoring AOT compilation to ClojureCLR." />
+<link rel="canonical" href="https://dmiller.github.io/clojure-clr-next/general/2025/02/20/AOT-compilation-issues.html" />
+<meta property="og:url" content="https://dmiller.github.io/clojure-clr-next/general/2025/02/20/AOT-compilation-issues.html" />
+<meta property="og:site_name" content="ClojureCLR - Next!" />
+<meta property="og:type" content="article" />
+<meta property="article:published_time" content="2025-02-20T05:00:00+00:00" />
+<meta name="twitter:card" content="summary" />
+<meta property="twitter:title" content="AOT compilation issues" />
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"BlogPosting","dateModified":"2025-02-20T05:00:00+00:00","datePublished":"2025-02-20T05:00:00+00:00","description":"A look at the issues involved in restoring AOT compilation to ClojureCLR.","headline":"AOT compilation issues","mainEntityOfPage":{"@type":"WebPage","@id":"https://dmiller.github.io/clojure-clr-next/general/2025/02/20/AOT-compilation-issues.html"},"url":"https://dmiller.github.io/clojure-clr-next/general/2025/02/20/AOT-compilation-issues.html"}</script>
+<!-- End Jekyll SEO tag -->
+<link rel="stylesheet" href="/clojure-clr-next/assets/main.css"><link type="application/atom+xml" rel="alternate" href="https://dmiller.github.io/clojure-clr-next/feed.xml" title="ClojureCLR - Next!" /></head>
+<body><header class="site-header" role="banner">
+
+  <div class="wrapper"><a class="site-title" rel="author" href="/clojure-clr-next/">ClojureCLR - Next!</a><nav class="site-nav">
+        <input type="checkbox" id="nav-trigger" class="nav-trigger" />
+        <label for="nav-trigger">
+          <span class="menu-icon">
+            <svg viewBox="0 0 18 15" width="18px" height="15px">
+              <path d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0 h15.032C17.335,0,18,0.665,18,1.484L18,1.484z M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0 c0-0.82,0.665-1.484,1.484-1.484h15.032C17.335,6.031,18,6.696,18,7.516L18,7.516z M18,13.516C18,14.335,17.335,15,16.516,15H1.484 C0.665,15,0,14.335,0,13.516l0,0c0-0.82,0.665-1.483,1.484-1.483h15.032C17.335,12.031,18,12.695,18,13.516L18,13.516z"/>
+            </svg>
+          </span>
+        </label>
+
+        <div class="trigger"><a class="page-link" href="/clojure-clr-next/about/">About</a><a class="page-link" href="/clojure-clr-next/">ClojureCLR.Next</a><a class="page-link" href="/clojure-clr-next/data/links.html">Some links to relevant reading</a><a class="page-link" href="/clojure-clr-next/docs/original-version-type-computation.html">Typing in original Clojure(JVM/CLR)</a></div>
+      </nav></div>
+</header>
+<main class="page-content" aria-label="Content">
+      <div class="wrapper">
+        <article class="post h-entry" itemscope itemtype="http://schema.org/BlogPosting">
+
+  <header class="post-header">
+    <h1 class="post-title p-name" itemprop="name headline">AOT compilation issues</h1>
+    <p class="post-meta">
+      <time class="dt-published" datetime="2025-02-20T05:00:00+00:00" itemprop="datePublished">Feb 20, 2025
+      </time></p>
+  </header>
+
+  <div class="post-content e-content" itemprop="articleBody">
+    <p>A look at the issues involved in restoring AOT compilation to ClojureCLR.</p>
+
+<h2 id="background">Background</h2>
+
+<p>ClojureCLR initially was developed on what is now called .NET Framework, currently in some 4.8.x version. 
+(The first version of ClojureCLR supported 3.5.)
+Under Framework, ClojureCLR was able to do ahead-of-time (AOT) compilation and save to disk DLL files containing compiled Clojure source code.<br />
+This allowed the distribution of pre-compiled versions of all Clojure runtime supplied as Clojure source – <code class="language-plaintext highlighter-rouge">core.clj</code> and the rest.
+Startup-times were significantly reduced by loading DLLs versus loading the source files from scratch.</p>
+
+<p>When .Net Core was introduced,  saving dynamic assemblies to file was no longer supported.  The official reason:</p>
+
+<blockquote>
+  <p>The <code class="language-plaintext highlighter-rouge">AssemblyBuilder.Save</code> API wasn’t originally ported to .NET (Core) because the implementation depended heavily on Windows-specific native code that also wasn’t ported. (<a href="https://learn.microsoft.com/en-us/dotnet/fundamentals/runtime-libraries/system-reflection-emit-persistedassemblybuilder">Source</a>)</p>
+</blockquote>
+
+<p>Since then, I have periodically looked for alternatives.  I’ll talk more about some of them at the end of this post.</p>
+
+<p>.Net 9 restores the key method:  <code class="language-plaintext highlighter-rouge">System.Reflection.Emit.AssemblyBuilder.Save()</code>. Almost.  What it provides is a new version of the assembly builder functionality, in the class <code class="language-plaintext highlighter-rouge">System.Reflection.Emit.PersistedAssemblyBuilder</code>.  There are significant differences between <code class="language-plaintext highlighter-rouge">AssemblyBuilder</code> and <code class="language-plaintext highlighter-rouge">PersistedAssemblyBuilder</code> that have direct (dire?) consequences for code generation in ClojureCLR. For this reason, re-enabling AOT compilation in ClojureCLR in .NET 9 is not simply a matter of reactivating the code that worked for Framework.</p>
+
+<p>Understanding the issues requires some knowlege of how ClojureCLR generates code.</p>
+
+<h2 id="code-generation-in-clojureclr">Code generation in ClojureCLR</h2>
+
+<p>In Clojure (JVM or CLR), the reading and evaluation of Clojure source code results in the analysis of that code and eventual generation of IL code (Java bytecodes on the JVM, MSIL on the CLR).  Whether that code is written to a file – for the JVM, in <code class="language-plaintext highlighter-rouge">.class</code> files; for the CLR, an assembly – depends on whether the <code class="language-plaintext highlighter-rouge">*compile-files*</code> flag is set.</p>
+
+<p>If you working at the REPL, a form is read, analyzed and evaluated.  Leaving out some special case handling (more on that some other day), roughly the following happens.  Say you have read in the form:</p>
+
+<div class="language-clojure highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="p">(</span><span class="k">defn</span><span class="w"> </span><span class="n">f</span><span class="w"> </span><span class="p">[</span><span class="n">x</span><span class="p">]</span><span class="w"> </span><span class="p">(</span><span class="nb">inc</span><span class="w"> </span><span class="n">x</span><span class="p">))</span><span class="w">
+</span></code></pre></div></div>
+
+<p>This macroexpands to something like:</p>
+
+<div class="language-clojure highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="p">(</span><span class="k">def</span><span class="w"> </span><span class="n">f</span><span class="w"> </span><span class="p">(</span><span class="nf">fn*</span><span class="w"> </span><span class="p">[</span><span class="n">x</span><span class="p">]</span><span class="w"> </span><span class="p">(</span><span class="nb">inc</span><span class="w"> </span><span class="n">x</span><span class="p">)))</span><span class="w">
+</span></code></pre></div></div>
+
+<p>The evaluation process for the <code class="language-plaintext highlighter-rouge">fn*</code> sub-form results in the creation of a type – let’s call it <code class="language-plaintext highlighter-rouge">My.F</code> – that implements the <code class="language-plaintext highlighter-rouge">IFn</code> interface.  It will have an implementation of <code class="language-plaintext highlighter-rouge">IFn.invoke(arg1)</code> that returns its argument increased by one.</p>
+
+<p>Ultimately, we then evaluate the <code class="language-plaintext highlighter-rouge">def</code> form.  This results in:</p>
+
+<ol>
+  <li>a mapping for the symbol <code class="language-plaintext highlighter-rouge">f</code> in the current namespace (call it <code class="language-plaintext highlighter-rouge">my.fs</code>) to</li>
+  <li>a newly created <code class="language-plaintext highlighter-rouge">Var</code> <code class="language-plaintext highlighter-rouge">#'my.ns/f</code> that has its value</li>
+  <li>the result of calling <code class="language-plaintext highlighter-rouge">new My.F()</code>.</li>
+</ol>
+
+<p>Of great importance here is that the Clojure environment is modified progressively.
+When the next form is read and evaluated, it can see <code class="language-plaintext highlighter-rouge">f</code>’s binding, grab the value of the associated <code class="language-plaintext highlighter-rouge">Var</code> and proceed accordingly.</p>
+
+<p>Even when you don’t see <code class="language-plaintext highlighter-rouge">fn</code> as directly as here, most forms being evaluated will result in the creation of at least one new type.  In the CLR, these types must have a home.  In the non-compile environment, we keep a dynamic assembly (named <code class="language-plaintext highlighter-rouge">eval</code>) for this purpose.  Fortunately, dynamic types in dynamic assemblies can be used immediately.  We don’t have to wait for the assembly to be saved to disk.</p>
+
+<p>When you are sitting and typing at the REPL, you just keeping doing the process above over and over.  When you load a Clojure source file, via a call to <code class="language-plaintext highlighter-rouge">load</code>, <code class="language-plaintext highlighter-rouge">require</code>, or similar, exactly the same process happens.  Those functions are just a REPL (Read-Eval-Print Loop) without the <code class="language-plaintext highlighter-rouge">Print</code>.</p>
+
+<h2 id="aot-compilation-in-clojureclr">AOT compilation in ClojureCLR</h2>
+
+<p>AOT compilation means saving the generated code – to <code class="language-plaintext highlighter-rouge">.class</code> files on the JVM or to an assembly written to disk on the CLR.  This would typically be done by calling the <code class="language-plaintext highlighter-rouge">compile</code> function:</p>
+
+<blockquote>
+  <p>Usage: (compile lib)</p>
+
+  <p>Compiles the namespace named by the symbol lib into a set of
+classfiles. The source for the lib must be in a proper
+classpath-relative directory. The output files will go into the
+directory specified by <em>compile-path</em>, and that directory too must
+be in the classpath.</p>
+</blockquote>
+
+<p><code class="language-plaintext highlighter-rouge">compile</code> is defined as:</p>
+
+<div class="language-clojure highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="p">(</span><span class="k">defn</span><span class="w"> </span><span class="n">compile</span><span class="w">
+  </span><span class="p">[</span><span class="n">lib</span><span class="p">]</span><span class="w">
+  </span><span class="p">(</span><span class="nb">binding</span><span class="w"> </span><span class="p">[</span><span class="n">*compile-files*</span><span class="w"> </span><span class="n">true</span><span class="p">]</span><span class="w">
+    </span><span class="p">(</span><span class="nf">load-one</span><span class="w"> </span><span class="n">lib</span><span class="w"> </span><span class="n">true</span><span class="w"> </span><span class="n">true</span><span class="p">))</span><span class="w">
+  </span><span class="n">lib</span><span class="p">)</span><span class="w">
+</span></code></pre></div></div>
+
+<p><code class="language-plaintext highlighter-rouge">load-one</code>  also underlies <code class="language-plaintext highlighter-rouge">load</code> and <code class="language-plaintext highlighter-rouge">require</code>.  It calls some runtime code (defined in Java/C#) that does different things depending on whether <code class="language-plaintext highlighter-rouge">*compile-files*</code> is true or not.</p>
+
+<p>Focusing on ClojureCLR and on .NET Framework,  when we compile a source file, we first generate a <em>saveable</em> assembly – the official terminology seems to be <em>persisted</em> –  to use in place of the <code class="language-plaintext highlighter-rouge">eval</code> assembly that we use for interactive work. We then go through essentially the same process as above.  Read a form, analyze it, create types as necessary and generate the appropriate IL code.  In addition, we create an <em>initialization</em> type that contains a static method to which we write code that will do the same steps as the REPL loop – create <code class="language-plaintext highlighter-rouge">Var</code>s, map symbols to <code class="language-plaintext highlighter-rouge">Var</code>s, etc.</p>
+
+<p>At the end of the process, we save the assembly to disk. When we are loading a library and find a DLL file – say we are trying to load load library <code class="language-plaintext highlighter-rouge">clojure.uuid</code> and we find <code class="language-plaintext highlighter-rouge">clojure.uuid.dll</code> – we load the DLL and call the initialization method.</p>
+
+<h2 id="the-primary-issue-for-aot-compilation-in-net-9">The primary issue for AOT compilation in .NET 9</h2>
+
+<p>The most important point in all of the above is the <em>progressive updating of the Clojure environment</em>: Each form <em>must</em> be evaluated before the next form is read.</p>
+
+<p>In .NET Framework, an assembly that can be saved allows the dynamic usage of finalized types.  You can use the types before the save.</p>
+
+<p>This is not the case with the new <code class="language-plaintext highlighter-rouge">PersistedAssemblyBuilder</code>. We cannot use the types we have created until the assembly as a whole is saved. And then you must load it it before using any of the types.  <strong>We cannot do progressive evaluation.</strong> This is a show-stopper for ClojureCLR.</p>
+
+<p>The documentation does make this explicit, if you look hard enough.
+We find:</p>
+
+<blockquote>
+  <p>A dynamic assembly is an assembly that is created using the Reflection Emit APIs. A dynamic assembly can reference types defined in another dynamic or static assembly. You can use AssemblyBuilder to generate dynamic assemblies in memory and execute their code during the same application run. In .NET 9 we added a new <code class="language-plaintext highlighter-rouge">PersistedAssemblyBuilder</code> with fully managed implementation of reflection emit that allows you save the assembly into a file. In .NET Framework, you can do both—run the dynamic assembly and save it to a file. ( <a href="https://learn.microsoft.com/en-us/dotnet/fundamentals/runtime-libraries/system-reflection-emit-assemblybuilder">Source</a>)</p>
+</blockquote>
+
+<p>And:</p>
+
+<blockquote>
+  <p>New in .NET 9, the <code class="language-plaintext highlighter-rouge">PersistedAssemblyBuilder</code> class adds a fully managed <code class="language-plaintext highlighter-rouge">Reflection.Emit</code> implementation that supports saving. This implementation has no dependency on the pre-existing, runtime-specific <code class="language-plaintext highlighter-rouge">Reflection.Emit</code> implementation. That is, now there are two different implementations in .NET, runnable and persisted. To run the persisted assembly, first save it into a memory stream or a file, then load it back. (<a href="https://learn.microsoft.com/en-us/dotnet/fundamentals/runtime-libraries/system-reflection-emit-persistedassemblybuilder">Source</a>).</p>
+</blockquote>
+
+<h2 id="how-to-proceed">How to proceed</h2>
+
+<p>The only solution I’ve come up with so far is doing all the code generation twice.<br />
+Syntactic and semantic analysis  – the generation of the AST from which we do code generation – need only be done once.<br />
+For each form, we then create two types, one in the <code class="language-plaintext highlighter-rouge">eval</code> dynamic assembly and one in the persisted assembly that we will save to file.<br />
+We generate code into each type and evaluate the one from the dynamic assembly.</p>
+
+<p>Even this is not as easy as it sounds. (If it sounds easy.)  The design of the current compiler has code generation happening <em>during</em> syntactic analysis. 
+Specifically, those things that are ‘functions’ – typically what you get from <code class="language-plaintext highlighter-rouge">defn</code>, <code class="language-plaintext highlighter-rouge">deftype</code>, direct uses of <code class="language-plaintext highlighter-rouge">fn</code>, etc. – actually have their types generated and finalized during the first pass.
+It even goes a little further.  If you do something at the REPL (or in a source file) such as:</p>
+
+<div class="language-clojure highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="p">(</span><span class="k">def</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="p">(</span><span class="k">let</span><span class="w"> </span><span class="p">[</span><span class="n">y</span><span class="w"> </span><span class="n">f</span><span class="p">(</span><span class="nf">12</span><span class="p">)]</span><span class="w"> </span><span class="p">(</span><span class="nb">inc</span><span class="w"> </span><span class="n">y</span><span class="p">)))</span><span class="w">
+</span></code></pre></div></div>
+
+<p>it so happens that ‘naked’ <code class="language-plaintext highlighter-rouge">let</code>s get wrapped with a <code class="language-plaintext highlighter-rouge">fn</code> – don’t ask – so even in something as simple as this, we have a type generated during syntactic analysis.
+I <em>think</em> that this very little effect at that point in the process – but most likely I will have to do double generation even during syntactic analysis.<br />
+ Emitting twice, once for saving and once for progressive evaluation,  might work.  But there are complications I have not figured out yet.</p>
+
+<p>[Edit: The first version of this post had a digression on direct linking here.  I’ve moved that to a <a href="/clojure-clr-next/general/2025/02/20/AOT-compilation-issues.html">separate post</a>.]</p>
+
+<p>The biggest task to start is to go over line of code in the compiler to see if there is any chance that we could cross-reference from  dynamic (eval) assembly types to/from persisted assembly types.  Either direction, the code won’t run.  (If the dynamic code references something in the persisteed assembly, we can’t run it – the persistent assembly type can’t be run.  If the persisted code references a something in the eval assembly, we won’t be able to save the assembly;  been there, done that, when first writing the compiler code.)</p>
+
+<h2 id="not-so-fast-platform-dependence">Not so fast: platform dependence</h2>
+
+<p>There are some additional problems in the brave new world of post-Framework .NET.  One is the platform dependence.</p>
+
+<blockquote>
+  <p>To create a <code class="language-plaintext highlighter-rouge">PersistedAssemblyBuilder</code><code class="language-plaintext highlighter-rouge"> instance, use the PersistedAssemblyBuilder(AssemblyName, Assembly, IEnumerable&lt;CustomAttributeBuilder&gt;)</code> constructor. The<code class="language-plaintext highlighter-rouge"> coreAssembly</code> parameter is used to resolve base runtime types and can be used for resolving reference assembly versioning:</p>
+
+  <ul>
+    <li>If <code class="language-plaintext highlighter-rouge">Reflection.Emit</code> is used to generate an assembly that will only be executed on the same runtime version as the runtime version that the compiler is running on (typically in-proc), the core assembly can be simply <code class="language-plaintext highlighter-rouge">typeof(object).Assembly</code>.</li>
+  </ul>
+
+  <p><em>[example deleted]</em></p>
+
+  <p>If <code class="language-plaintext highlighter-rouge">Reflection.Emit</code> is used to generate an assembly that targets a specific TFM, open the reference assemblies for the given TFM using <code class="language-plaintext highlighter-rouge">MetadataLoadContext</code> and use the value of the <code class="language-plaintext highlighter-rouge">MetadataLoadContext.CoreAssembly</code> property for <code class="language-plaintext highlighter-rouge">coreAssembly</code>. This value allows the generator to run on one .NET runtime version and target a different .NET runtime version.</p>
+</blockquote>
+
+<p>We may be in a situation where supporting multiple TFMs (target frameworks) is required. Given that TFMs can relate not just to .NET version but also operating system specificity, we have a nightmare.</p>
+
+<p>It could be that we have to do AOT-compilation of things like <code class="language-plaintext highlighter-rouge">core.clj</code> as part of the installation process.</p>
+
+<p>I’m not feeling well.</p>
+
+<h2 id="other-solutions">Other solutions</h2>
+
+<p>A number of other solutions have been suggested over the years.</p>
+
+<ol>
+  <li>
+    <p>Find an package that can save dynamic assemblies in post-Framework verions of .NET.  Some of the options I’ve looked at:</p>
+
+    <ul>
+      <li><a href="https://www.mono-project.com/docs/tools+libraries/libraries/Mono.Cecil/">Mono.Cecil</a> – heavily used, very reliable.  But I couldn’t find good examples of how to do use it for dynamic code gen in the way we need it.</li>
+      <li><a href="https://github.com/Lokad/ILPack">Lokad.ILPack</a> – I actually tried to use it a few years ago.  I ran into bugs, mostly incomplete features.   The project is owned by a company that uses it for its own work.  They will take patches, but new releases are few and far between.  I could fork and try to fix them.  But that looked like a lot of work.</li>
+    </ul>
+  </li>
+  <li>
+    <p>The Roslyn compiler.  The choices seem to be: write C# code as a string, read it, compile it; or create a syntax tree programmatically.  Either way, I’d have to figure out how to translate all Clojure compilation tricks into C# terms.  That seems daunting. And I think we still have the progressive evaluation problem – I don’t believe the technology supports dynamic code generation.</p>
+  </li>
+  <li>
+    <p>Just don’t do it.  Yeah, that’s been my approach so far.</p>
+  </li>
+  <li>
+    <p>Go halfway.  Rather than generating IL code, develop an intermediate language that expresses what is in the AST tree.  Loading it would be faster than reading and analyzing the source code.  But we’d still have to create the types and generate IL at runtime.  This would be  slower than loading a DLL.  Sounds like a lot of work.</p>
+  </li>
+</ol>
+
+<h2 id="open-to-suggestions">Open to suggestions</h2>
+
+<p>If you have other ideas, let me know.  I’ve started a <a href="https://github.com/dmiller/clojure-clr-next/discussions/8">discussion</a> seeking inspiration.</p>
+
+
+  </div><a class="u-url" href="/clojure-clr-next/general/2025/02/20/AOT-compilation-issues.html" hidden></a>
+</article>
+
+      </div>
+    </main><footer class="site-footer h-card">
+  <data class="u-url" href="/clojure-clr-next/"></data>
+
+  <div class="wrapper">
+
+    <h2 class="footer-heading">ClojureCLR - Next!</h2>
+
+    <div class="footer-col-wrapper">
+      <div class="footer-col footer-col-1">
+        <ul class="contact-list">
+          <li class="p-name">ClojureCLR - Next!</li><li><a class="u-email" href="mailto:dmiller2718@gmail.com">dmiller2718@gmail.com</a></li></ul>
+      </div>
+
+      <div class="footer-col footer-col-2"><ul class="social-media-list"><li><a href="https://github.com/dmiller"><svg class="svg-icon"><use xlink:href="/clojure-clr-next/assets/minima-social-icons.svg#github"></use></svg> <span class="username">dmiller</span></a></li><li><a href="https://www.twitter.com/dmiller2718"><svg class="svg-icon"><use xlink:href="/clojure-clr-next/assets/minima-social-icons.svg#twitter"></use></svg> <span class="username">dmiller2718</span></a></li></ul>
+</div>
+
+      <div class="footer-col footer-col-3">
+        <p>A project to rewrite the ClojureCLR engine.</p>
+      </div>
+    </div>
+
+  </div>
+
+</footer>
+</body>
+
+</html>
