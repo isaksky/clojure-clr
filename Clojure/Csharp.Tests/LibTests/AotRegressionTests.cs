@@ -60,6 +60,11 @@ namespace Clojure.Tests.LibTests
   (.ToString x))
 
 (def dynamic-result (stringify-dynamic 42))
+
+(defn dynamic-length [x]
+  (.Length x))
+
+(def dynamic-length-result (dynamic-length ""abcd""))
 ";
 
         private const string GenDelegateBody = @"
@@ -175,16 +180,25 @@ namespace Clojure.Tests.LibTests
         }
 
         [Test]
-        public void ModernPersistedAotRejectsDynamicHostInteropCallSites()
+        public void ModernPersistedAotSupportsDynamicHostInteropCallSites()
         {
             using AotSample sample = AotSample.Create(DynamicHostInteropBody);
+            GenContext context = CompileSampleWithExplicitContext(sample);
 
-            Compiler.CompilerException ex = Assert.Throws<Compiler.CompilerException>(() => CompileSample(sample));
+            Assert.That(VarValue(sample, "dynamic-result"), Is.EqualTo("42"));
+            Assert.That(VarValue(sample, "dynamic-length-result"), Is.EqualTo(4));
 
-            Assert.That(ex.InnerException, Is.TypeOf<InvalidOperationException>());
-            Assert.That(ex.InnerException.Message, Does.Contain("Dynamic host interop is not supported"));
-            Assert.That(File.Exists(sample.AssemblyPath), Is.False,
-                "Rejected dynamic host interop forms should not leave a persisted namespace DLL.");
+            SaveExplicitContext(context);
+            Assembly assembly = Assembly.LoadFrom(sample.AssemblyPath);
+            Assert.That(assembly.GetReferencedAssemblies().Any(IsEvalOrInternalDynamicReference), Is.False,
+                "Persisted dynamic host interop should not reference transient eval/internal dynamic assemblies.");
+
+            Assert.That(context.GeneratedArtifacts.Types.Any(type =>
+                IsDynamicHostInteropHelper(type.GetRuntimeName(GeneratedArtifactBackend.Persisted))
+                && IsDynamicHostInteropHelper(type.GetRuntimeName(GeneratedArtifactBackend.Eval))), Is.True,
+                "Dynamic host interop helpers should be paired across persisted and eval backends."
+                + Environment.NewLine
+                + DumpGeneratedTypes(context));
         }
 
         [Test]
@@ -758,6 +772,13 @@ namespace Clojure.Tests.LibTests
         private static bool IsGeneratedHelperRuntimeName(string name)
         {
             return name is not null && Regex.IsMatch(name, @"\$helper__\d+(?=__|\$|$)");
+        }
+
+        private static bool IsDynamicHostInteropHelper(string name)
+        {
+            return name is not null
+                && (name.Contains("__dynInitHelper", StringComparison.Ordinal)
+                    || name.StartsWith("__InternalDynamicExpressionInits_", StringComparison.Ordinal));
         }
 
         private static string DumpGeneratedTypes(GenContext context)

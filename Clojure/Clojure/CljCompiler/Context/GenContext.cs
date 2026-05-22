@@ -268,7 +268,7 @@ namespace clojure.lang.CljCompiler.Context
 #endif
 
             if (createDynInitHelper)
-                _dynInitHelper = new DynInitHelper(_assyGen, GenerateName());
+                _dynInitHelper = new DynInitHelper(this, GenerateName());
 
             _docInfo = Expression.SymbolDocument(sourceName);
 
@@ -323,7 +323,7 @@ namespace clojure.lang.CljCompiler.Context
         {
             GenContext newContext = Clone();
 
-            newContext._dynInitHelper = new DynInitHelper(_assyGen, dihClassName);
+            newContext._dynInitHelper = new DynInitHelper(newContext, dihClassName);
 
             return newContext;
         }
@@ -404,6 +404,11 @@ namespace clojure.lang.CljCompiler.Context
                 return null;
 
             return _generatedArtifacts.RegisterMember(ArtifactBackend, owner.Id, kind, logicalName, member);
+        }
+
+        public Type ResolveGeneratedTypeForCurrentBackend(Type type)
+        {
+            return _generatedArtifacts.ResolveGeneratedTypeForBackend(type, ArtifactBackend);
         }
 
         private string CurrentGeneratedSourcePath()

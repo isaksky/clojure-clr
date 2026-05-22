@@ -158,12 +158,20 @@ namespace clojure.lang.Runtime.Binding
             {
                 ilg2.Emit(OpCodes.Dup);
                 ilg2.EmitInt(i);
-                ilg2.EmitType(_typeArgs[i]);
+                ilg2.EmitType(ResolveGeneratedTypeForCurrentBackend(_typeArgs[i]));
                 ilg2.Emit(OpCodes.Stelem_Ref);
             }
 
             ilg2.EmitBoolean(_isStatic);
             ilg2.EmitCall(MI_CreateMe);
+        }
+
+        private static Type ResolveGeneratedTypeForCurrentBackend(Type type)
+        {
+            if (clojure.lang.Compiler.CompilerContextVar.deref() is GenContext context)
+                return context.ResolveGeneratedTypeForCurrentBackend(type);
+
+            return type;
         }
 
         #endregion

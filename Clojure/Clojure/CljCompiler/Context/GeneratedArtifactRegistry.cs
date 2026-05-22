@@ -307,6 +307,30 @@ public sealed class GeneratedArtifactRegistry
         return _members.TryGetValue(id, out record);
     }
 
+    public Type ResolveGeneratedTypeForBackend(Type type, GeneratedArtifactBackend backend)
+    {
+        if (type is null)
+            return null;
+
+        foreach (GeneratedTypeRecord record in _types.Values)
+        {
+            if (IsRecordedType(record, type))
+                return record.GetCreatedType(backend) ?? record.GetTypeBuilder(backend) ?? type;
+        }
+
+        return type;
+    }
+
+    private static bool IsRecordedType(GeneratedTypeRecord record, Type type)
+    {
+        return ReferenceEquals(record.EvalType, type)
+            || ReferenceEquals(record.PersistedType, type)
+            || ReferenceEquals(record.UnknownType, type)
+            || ReferenceEquals(record.EvalTypeBuilder, type)
+            || ReferenceEquals(record.PersistedTypeBuilder, type)
+            || ReferenceEquals(record.UnknownTypeBuilder, type);
+    }
+
     private static string NormalizeLogicalName(string logicalName)
     {
         if (string.IsNullOrEmpty(logicalName))

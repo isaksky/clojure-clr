@@ -49,9 +49,11 @@ namespace clojure.lang.CljCompiler.Context
         #region Data
 
         int _id;
+        readonly GenContext _context;
         readonly AssemblyGenT _assemblyGen;
         TypeBuilder _typeBuilder;
         TypeGenT _typeGen;
+        GeneratedTypeRecord _generatedType;
 
         readonly string _typeName;
 
@@ -80,9 +82,10 @@ namespace clojure.lang.CljCompiler.Context
 
         #region Ctors and factories
 
-        public DynInitHelper(AssemblyGenT ag, string typeName)
+        public DynInitHelper(GenContext context, string typeName)
         {
-            _assemblyGen = ag;
+            _context = context ?? throw new ArgumentNullException(nameof(context));
+            _assemblyGen = context.AssemblyGen;
             _typeName = typeName;
         }
 
@@ -110,7 +113,9 @@ namespace clojure.lang.CljCompiler.Context
 
             Type delegateToUse = delegateType ?? node.DelegateType;
             Type siteType = typeof(CallSite<>).MakeGenericType(delegateToUse);
-            FieldBuilder fb = _typeGen.AddStaticField(siteType, "sf" + _id++.ToString());
+            string fieldName = "sf" + _id++.ToString();
+            FieldBuilder fb = _typeGen.AddStaticField(siteType, fieldName);
+            RegisterGeneratedMember(GeneratedMemberKind.Field, fieldName, fb);
 
             var siteInfo = new SiteInfo(fb, siteType, binder, delegateToUse);
             _siteInfos.Add(siteInfo);
@@ -123,9 +128,51 @@ namespace clojure.lang.CljCompiler.Context
             if (_typeBuilder == null)
             {
                 _typeBuilder = _assemblyGen.DefinePublicType(_typeName, typeof(object), true);
+                _generatedType = _context.RegisterGeneratedType(
+                    "dyn-init-helper:" + NormalizeHelperLogicalName(_typeName),
+                    _typeBuilder.FullName ?? _typeBuilder.Name,
+                    _typeBuilder);
                 _typeGen = new TypeGenT(_assemblyGen, _typeBuilder);
                 _siteInfos = new List<SiteInfo>();
             }
+        }
+
+        private static string NormalizeHelperLogicalName(string typeName)
+        {
+            if (string.IsNullOrEmpty(typeName))
+                return typeName;
+
+            const string dynInitMarker = "__dynInitHelper_";
+            int markerIndex = typeName.LastIndexOf(dynInitMarker, StringComparison.Ordinal);
+            if (markerIndex >= 0 && HasTrailingDigits(typeName, markerIndex + dynInitMarker.Length))
+                return typeName.Substring(0, markerIndex + dynInitMarker.Length - 1);
+
+            const string internalPrefix = "__InternalDynamicExpressionInits_";
+            if (typeName.StartsWith(internalPrefix, StringComparison.Ordinal)
+                && HasTrailingDigits(typeName, internalPrefix.Length))
+                return internalPrefix.TrimEnd('_');
+
+            return ObjExpr.GeneratedLogicalName(typeName);
+        }
+
+        private static bool HasTrailingDigits(string value, int startIndex)
+        {
+            if (startIndex >= value.Length)
+                return false;
+
+            for (int i = startIndex; i < value.Length; i++)
+            {
+                if (!char.IsDigit(value[i]))
+                    return false;
+            }
+
+            return true;
+        }
+
+        private void RegisterGeneratedMember(GeneratedMemberKind kind, string logicalName, MemberInfo member)
+        {
+            if (_generatedType is not null && member is not null)
+                _context.RegisterGeneratedMember(_generatedType, kind, logicalName, member);
         }
 
         #endregion
@@ -190,17 +237,17 @@ namespace clojure.lang.CljCompiler.Context
             {
                 return false;
             }
+
+            if (module.Assembly != _assemblyGen.AssemblyBuilder)
+            {
+                return true;
+            }
 #if NETFRAMEWORK
             if (module.IsTransient())
             {
                 return true;
             }
 #endif
-
-            if (Snippets.Shared.SaveSnippets && module.Assembly != _assemblyGen.AssemblyBuilder)
-            {
-                return true;
-            }
 
             return false;
         }
@@ -284,8 +331,15 @@ namespace clojure.lang.CljCompiler.Context
         public Type MakeDelegateType(string name, Type[] parameters, Type returnType)
         {
             TypeBuilder builder = DefineType(name, typeof(MulticastDelegate), DelegateAttributes, false);
+            GeneratedTypeRecord generatedDelegateType = _context.RegisterGeneratedType(
+                "dyn-init-helper:" + NormalizeHelperLogicalName(_typeName) + ":delegate:" + DelegateSignature(name, parameters, returnType),
+                builder.FullName ?? builder.Name,
+                builder);
+
             var ctor = builder.DefineConstructor(CtorAttributes, CallingConventions.Standard, _DelegateCtorSignature);
             var method = builder.DefineMethod("Invoke", InvokeAttributes, returnType, parameters);
+            _context.RegisterGeneratedMember(generatedDelegateType, GeneratedMemberKind.Constructor, ".ctor", ctor);
+            _context.RegisterGeneratedMember(generatedDelegateType, GeneratedMemberKind.Method, "Invoke", method);
 
 #if NET9_0_OR_GREATER
 
@@ -319,7 +373,56 @@ namespace clojure.lang.CljCompiler.Context
             method.SetImplementationFlags(ImplAttributes);
 #endif
 
-            return builder.CreateType();
+            Type delegateType = builder.CreateType();
+            _context.RegisterGeneratedTypeCreated(generatedDelegateType, delegateType);
+            return delegateType;
+        }
+
+        private static string DelegateSignature(string name, Type[] parameters, Type returnType)
+        {
+            StringBuilder sb = new(name);
+            sb.Append('(');
+            for (int i = 0; i < parameters.Length; i++)
+            {
+                if (i > 0)
+                    sb.Append(',');
+                sb.Append(TypeLogicalName(parameters[i]));
+            }
+            sb.Append(")->");
+            sb.Append(TypeLogicalName(returnType));
+            return sb.ToString();
+        }
+
+        private static string TypeLogicalName(Type type)
+        {
+            if (type is null)
+                return "<null>";
+
+            if (type.IsByRef)
+                return TypeLogicalName(type.GetElementType()) + "&";
+
+            if (type.IsPointer)
+                return TypeLogicalName(type.GetElementType()) + "*";
+
+            if (type.IsArray)
+                return TypeLogicalName(type.GetElementType()) + "[]";
+
+            if (type.IsGenericType)
+            {
+                StringBuilder sb = new(ObjExpr.GeneratedLogicalName(type.GetGenericTypeDefinition().FullName ?? type.Name));
+                sb.Append('[');
+                Type[] args = type.GetGenericArguments();
+                for (int i = 0; i < args.Length; i++)
+                {
+                    if (i > 0)
+                        sb.Append(',');
+                    sb.Append(TypeLogicalName(args[i]));
+                }
+                sb.Append(']');
+                return sb.ToString();
+            }
+
+            return ObjExpr.GeneratedLogicalName(type.FullName ?? type.Name);
         }
 
         private const MethodAttributes CtorAttributes = MethodAttributes.RTSpecialName | MethodAttributes.HideBySig | MethodAttributes.Public;
@@ -354,6 +457,7 @@ namespace clojure.lang.CljCompiler.Context
         void CreateStaticCtor()
         {
             ConstructorBuilder ctorB = _typeBuilder.DefineConstructor(MethodAttributes.Static | MethodAttributes.Public, CallingConventions.Standard, Type.EmptyTypes);
+            RegisterGeneratedMember(GeneratedMemberKind.StaticConstructor, ".cctor", ctorB);
             CljILGen gen = new CljILGen(ctorB.GetILGenerator());
 
             foreach (SiteInfo si in _siteInfos)
@@ -366,6 +470,7 @@ namespace clojure.lang.CljCompiler.Context
                     CallingConventions.Standard,
                     si.SiteType,
                     Type.EmptyTypes);
+                RegisterGeneratedMember(GeneratedMemberKind.Method, setterName, mbSetter);
                 //LambdaExpression initL = Expression.Lambda(Expression.Assign(Expression.Field(null, fb), fbInit));
                 //initL.CompileToMethod(mbSetter);
                 CljILGen setterIlg = new CljILGen(mbSetter.GetILGenerator());

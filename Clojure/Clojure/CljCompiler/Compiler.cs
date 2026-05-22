@@ -265,10 +265,7 @@ namespace clojure.lang
         internal static void CheckDynamicHostInteropAllowedInCurrentContext()
         {
 #if NET9_0_OR_GREATER
-            if (IsPersistedAssemblyCompilationContext())
-                throw new InvalidOperationException(
-                    "Dynamic host interop is not supported during modern .NET persisted AOT compilation yet. "
-                    + "Call-site helper and delegate generation must be paired before these forms can be saved safely.");
+            // Dynamic host interop helpers are emitted through the active backend context.
 #endif
         }
 
