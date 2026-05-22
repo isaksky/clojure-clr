@@ -15,7 +15,7 @@
 
 | Pattern | Source | Why unsafe | Required mitigation |
 | --- | --- | --- | --- |
-| Single `Var -> Type` direct-link map | `Compiler.RegisterDirectLink`, `StaticInvokeExpr.Parse`, `InvokeExpr.Parse` | A persisted `Type` can be selected while producing eval code, or an eval type can be selected while producing persisted code if the map is not universe-specific | Replace with `Var -> GeneratedTypeId` plus backend-specific method lookup, or disable direct linking for first pass |
+| Single `Var -> Type` direct-link map | `Compiler.RegisterDirectLink`, `StaticInvokeExpr.Parse`, `InvokeExpr.Parse` | A persisted `Type` can be selected while producing eval code, or an eval type can be selected while producing persisted code if the map is not universe-specific | First pass implemented: suppress direct linking while compiling a `net9.0+` persisted assembly. Later replacement: `Var -> GeneratedTypeId` plus backend-specific method lookup |
 | `ObjExpr` stores generated `TypeBuilder`, `CompiledType`, `CtorInfo`, fields | `ObjExpr.Compile`, constructors, constants, call-sites | Emission after finalization can capture member infos from one universe | Introduce generated member pair records for type, fields, ctors, methods |
 | `NewInstanceExpr` generated base class | `CompileBaseClass` then main type compile | Persisted main type must derive from persisted base; eval main type must derive from eval base | Pair base and main types under one logical type family |
 | Duplicate type lookup by name | `RegisterDuplicateType`, `FindDuplicateType`, `FindDuplicateCompiledType`, host resolution | Name maps cannot answer "which backend do I need?" and cannot map members | Split lookup into eval/persisted maps keyed by logical type id and source name |
@@ -41,3 +41,7 @@ Reflection inspection found only persisted generated types inside the saved asse
 - Dynamic host interop: generated delegate types appear inside `CallSite<T>` fields and helper methods.
 - Direct linking across forms: useful for performance, but it is the most obvious place where a persisted type can leak into eval or vice versa.
 - Debug symbols: sequence points currently reach through `ILGenerator.MarkSequencePoint`; a Cecil backend or manual metadata path needs equivalent source mapping.
+
+## First-Pass Direct-Link Constraint
+
+For `net9.0+` persisted namespace compilation, direct linking is disabled by compiler context, not merely by test environment. Even if `:direct-linking true` is bound, `InvokeExpr` does not produce `StaticInvokeExpr` while the active compiler context targets a `PersistedAssemblyBuilder`, and the direct-link registry does not record or return `Var -> Type` entries in that context. This keeps the minimal AOT path on normal Var invocation until direct links can resolve through backend-specific generated type/member identities.

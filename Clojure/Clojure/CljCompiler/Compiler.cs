@@ -244,6 +244,32 @@ namespace clojure.lang
             return RT.get(CompilerOptionsVar.deref(), k);
         }
 
+        internal static bool IsDirectLinkingEnabled()
+        {
+            if (!RT.booleanCast(GetCompilerOption(DirectLinkingKeyword)))
+                return false;
+
+            return DirectLinkingAllowedInCurrentContext();
+        }
+
+        private static bool DirectLinkingAllowedInCurrentContext()
+        {
+#if NET9_0_OR_GREATER
+            return !IsPersistedAssemblyCompilationContext();
+#else
+            return true;
+#endif
+        }
+
+#if NET9_0_OR_GREATER
+        private static bool IsPersistedAssemblyCompilationContext()
+        {
+            return IsCompiling
+                && CompilerContextVar.deref() is GenContext context
+                && context.AssemblyBuilder is PersistedAssemblyBuilder;
+        }
+#endif
+
         internal static void InitializeCompilerOptions()
         {
             Object compilerOptions = null;
@@ -616,8 +642,22 @@ namespace clojure.lang
 
         static readonly Dictionary<Var, Type> _directLinkingMap = [];
 
-        public static void RegisterDirectLink(Var var, Type type) => _directLinkingMap[var] = type;
-        public static bool TryGetDirectLink(Var var, out Type t) => _directLinkingMap.TryGetValue(var, out t);
+        public static void RegisterDirectLink(Var var, Type type)
+        {
+            if (DirectLinkingAllowedInCurrentContext())
+                _directLinkingMap[var] = type;
+        }
+
+        public static bool TryGetDirectLink(Var var, out Type t)
+        {
+            if (!DirectLinkingAllowedInCurrentContext())
+            {
+                t = null;
+                return false;
+            }
+
+            return _directLinkingMap.TryGetValue(var, out t);
+        }
 
         // TODO: we have duplicate code below.
 

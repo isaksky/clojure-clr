@@ -159,7 +159,7 @@ namespace clojure.lang.CljCompiler.Ast
                 }
             }
 
-            if (RT.booleanCast(Compiler.GetCompilerOption(Compiler.DirectLinkingKeyword))
+            if (Compiler.IsDirectLinkingEnabled()
                 && varFexpr is not null
                 && pcon.Rhc != RHC.Eval)
             {

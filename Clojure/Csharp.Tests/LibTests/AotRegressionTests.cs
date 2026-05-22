@@ -82,6 +82,21 @@ namespace Clojure.Tests.LibTests
         }
 
         [Test]
+        public void MinimalNamespaceAotSuppressesDirectLinkingForPersistedCompile()
+        {
+            using AotSample sample = AotSample.Create();
+            CompileSample(sample, directLinking: true);
+
+            Var incAnswer = Var.find(Symbol.intern(sample.NamespaceName, "inc-answer"));
+            Assert.That(incAnswer, Is.Not.Null, "Compiled namespace should define inc-answer.");
+            Assert.That(Compiler.TryGetDirectLink(incAnswer, out _), Is.False,
+                "Modern persisted AOT suppresses direct-link records until generated types are backend-aware.");
+
+            Assert.That(File.Exists(sample.AssemblyPath), Is.True, "AOT compilation should still persist the namespace DLL.");
+            Assert.That(Var.find(Symbol.intern(sample.NamespaceName, "invoked")).deref(), Is.EqualTo(42));
+        }
+
+        [Test]
         public async Task MinimalNamespaceAotLoadsWithoutSourceInFreshProcess()
         {
             using AotSample sample = AotSample.Create();
@@ -142,7 +157,7 @@ namespace Clojure.Tests.LibTests
             Assert.That(result.StandardOutput, Does.Contain("Verified"), result.ToFailureMessage("dotnet-ilverify"));
         }
 
-        private static void CompileSample(AotSample sample)
+        private static void CompileSample(AotSample sample, bool directLinking = false)
         {
             string previousLoadPath = Environment.GetEnvironmentVariable(RT.ClojureLoadPathString);
             string testLoadPath = string.IsNullOrEmpty(previousLoadPath)
@@ -153,7 +168,7 @@ namespace Clojure.Tests.LibTests
             object compilerOptions = RT.assoc(
                 compilerOptionsVar.deref(),
                 Keyword.intern(null, "direct-linking"),
-                false);
+                directLinking);
 
             try
             {

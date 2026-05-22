@@ -78,10 +78,10 @@ namespace clojure.lang.CljCompiler.Ast
             Type target = v.get().GetType();
 
             {
-                // DirectLinkingMap only contains Var -> Type mappings for Types that have been compiled.
-                // That is, types that are residing in a PersistedAssemblyBuilder.
-                // We do not want to direct link to if we going into a non-PersistedAssemblyBuilder assembly --
-                //   this throws an exception when generating the method call IL in the StaticInvokeExpr.Emit
+                // DirectLinkingMap contains Var -> Type mappings for compiled generated types.
+                // Modern persisted compilation disables this lookup until direct-link records are backend-aware.
+                // We do not want to direct link if we are going into a non-persisted/internal assembly --
+                //   this throws an exception when generating the method call IL in the StaticInvokeExpr.Emit.
 
                 if (Compiler.IsCompiling &&
                      Compiler.CompilerContextVar.deref() is GenContext context &&

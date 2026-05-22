@@ -74,7 +74,7 @@ Required:
 
 Constrain or disable:
 
-- Direct linking can be disabled globally for the first pass, or enabled only when `StaticInvokeExpr` resolves through the persisted side of a generated-type pair.
+- Direct linking is disabled for `net9.0+` persisted assembly compilation in the first pass, even when the compiler option requests it. It should only be re-enabled after `StaticInvokeExpr` can resolve through the persisted side of a generated-type pair and eval can resolve through the eval side.
 
 Explicitly defer:
 
