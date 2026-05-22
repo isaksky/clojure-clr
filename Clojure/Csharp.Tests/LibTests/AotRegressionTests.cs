@@ -236,6 +236,32 @@ namespace Clojure.Tests.LibTests
                 "Generated protocol interface should not introduce transient dynamic assembly references.");
         }
 
+        [Test]
+        public void ModernPersistedAotUsesSameRuntimeTargetFrameworkPolicy()
+        {
+            using AotSample sample = AotSample.Create();
+            GenContext context = CompileSampleWithExplicitContext(sample);
+
+            Assert.That(context.UsesSameRuntimePersistedCoreAssembly, Is.True,
+                "The first modern persisted AOT path intentionally targets the executing runtime.");
+            Assert.That(context.PersistedCoreAssembly, Is.SameAs(typeof(object).Assembly));
+        }
+
+        [Test]
+        public void ModernPersistedAotDoesNotEmitPersistedDebugSymbolsInFirstPass()
+        {
+            using AotSample sample = AotSample.Create();
+            GenContext context = CompileSampleWithExplicitContext(sample);
+
+            Assert.That(context.IsDebuggable, Is.False,
+                "Modern persisted AOT keeps debug document/PDB emission disabled until that path is verified.");
+            Assert.That(context.DocWriter, Is.Null);
+
+            SaveExplicitContext(context);
+            Assembly assembly = Assembly.LoadFrom(sample.AssemblyPath);
+            Assert.That(assembly.GetCustomAttribute<DebuggableAttribute>(), Is.Null);
+        }
+
         [TestCaseSource(nameof(UnsupportedGeneratedFormCases))]
         public void ModernPersistedAotRejectsFirstPassGeneratedForms(UnsupportedGeneratedFormCase testCase)
         {

@@ -48,11 +48,13 @@ Current policy: `gen-interface` is supported during modern .NET persisted AOT by
 
 ## Debug Symbols And Target Frameworks
 
+First-pass policy: modern persisted namespace AOT uses same-runtime-only output and leaves persisted debug document/PDB emission disabled. `MyAssemblyGen` passes `typeof(object).Assembly` to `PersistedAssemblyBuilder`, and `GenContext` keeps external persisted contexts non-debuggable on `net9.0+` even in Debug builds. Cross-TFM reference assembly selection is tracked by `clojure-clr-rjb`; verified portable debug symbols are tracked by `clojure-clr-zkm`.
+
 | File | Change | Dependency | Risk | Fallback |
 | --- | --- | --- | --- | --- |
-| `GenContext.cs` | Abstract sequence point emission away from raw `ILGenerator.MarkSequencePoint`. | Backend-neutral debug API | Cecil/manual metadata backend needs a different model | Disable debug symbols for first milestone |
-| `MyAssemblyGen.cs` | Make manual PE/PDB save deterministic and tested. | Verification tooling | Incorrect debug directory or portable PDB row counts | Use simple `PersistedAssemblyBuilder.Save` when no PDB/entry point |
-| `MyAssemblyGen.cs` | Add target reference assembly policy. | `MetadataLoadContext` or same-runtime policy | Output may bind to executing runtime instead of intended TFM | Same-runtime-only first |
+| `GenContext.cs` | Persisted `net9.0+` namespace AOT contexts now suppress debug document/sequence point emission even in Debug builds. | None | Source-level debugging is unavailable for first-pass persisted output | Keep simple `PersistedAssemblyBuilder.Save` until `clojure-clr-zkm` verifies PDB support |
+| `MyAssemblyGen.cs` | Keep the manual PE/PDB save path out of first-pass namespace AOT unless an entry point or verified debug writer is explicitly needed. | Verification tooling | Incorrect debug directory or portable PDB row counts | Use simple `PersistedAssemblyBuilder.Save` |
+| `MyAssemblyGen.cs` | Target the executing runtime by using `typeof(object).Assembly` as the persisted core assembly. | None for first pass | Output binds to the compiler runtime instead of an arbitrary requested TFM | Same-runtime-only first; implement `clojure-clr-rjb` before cross-target output |
 
 ## Runtime Packaging
 

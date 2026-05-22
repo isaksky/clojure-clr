@@ -51,7 +51,9 @@ public sealed class MyAssemblyGen
 #if NET9_0_OR_GREATER
     MethodBuilder _entryPointMethodBuilder;     // non-null means we have an entry point
     ISymbolDocumentWriter _docWriter = null;    // non-null means we are writing debug info
+    private readonly Assembly _persistedCoreAssembly;
     public void SetDocWriter(ISymbolDocumentWriter dw) => _docWriter = dw;
+    internal Assembly PersistedCoreAssembly => _persistedCoreAssembly;
 #endif
 
     internal AssemblyBuilder AssemblyBuilder => _myAssembly;
@@ -83,6 +85,9 @@ public sealed class MyAssemblyGen
 #if NETFRAMEWORK || NET9_0_OR_GREATER
         _outFileName = null;
         _outDir = null;
+#endif
+#if NET9_0_OR_GREATER
+        _persistedCoreAssembly = null;
 #endif
 
         if (isDebuggable)
@@ -169,7 +174,8 @@ public sealed class MyAssemblyGen
         _myModule = _myAssembly.DefineDynamicModule(name.Name, _outFileName, isDebuggable);
         _myAssembly.DefineVersionInfoResource();
 #elif NET9_0_OR_GREATER
-        PersistedAssemblyBuilder ab = new PersistedAssemblyBuilder(name,typeof(object).Assembly, attributes);
+        _persistedCoreAssembly = SameRuntimePersistedCoreAssembly();
+        PersistedAssemblyBuilder ab = new PersistedAssemblyBuilder(name, _persistedCoreAssembly, attributes);
         _myAssembly = ab;
         _myModule = ab.DefineDynamicModule(name.Name, isDebuggable);
 #endif
@@ -199,6 +205,13 @@ public sealed class MyAssemblyGen
         _myAssembly.SetCustomAttribute(new CustomAttributeBuilder(debuggableCtor, argValues));
         _myModule.SetCustomAttribute(new CustomAttributeBuilder(debuggableCtor, argValues));
     }
+
+#if NET9_0_OR_GREATER
+    private static Assembly SameRuntimePersistedCoreAssembly()
+    {
+        return typeof(object).Assembly;
+    }
+#endif
 
 
     public string SaveAssembly()

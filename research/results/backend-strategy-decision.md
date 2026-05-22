@@ -24,8 +24,8 @@ Known constraints:
 
 - Persisted assemblies cannot execute before save/load, so progressive eval still needs a runnable eval counterpart.
 - Delegate types and `SetImplementationFlags` remain a sharp edge in `DynInitHelper`.
-- Debug document support currently forces a manual `GenerateMetadata`/`ManagedPEBuilder` save path.
-- Target-framework correctness currently uses the executing runtime's core assembly; cross-TFM/reference-assembly support is not solved.
+- Modern persisted namespace AOT disables debug document/PDB emission even in Debug builds. This keeps namespace output on the simple `PersistedAssemblyBuilder.Save` path until portable PDB/debug directory generation is verified. Follow-up: `clojure-clr-zkm`.
+- Target-framework correctness is intentionally same-runtime-only for the first pass. `MyAssemblyGen` passes `typeof(object).Assembly` as the persisted core assembly; cross-TFM/reference-assembly support is deferred until explicit `MetadataLoadContext` selection is needed. Follow-up: `clojure-clr-rjb`.
 
 ## Cecil Findings
 
@@ -57,7 +57,7 @@ ILRepack, Fody, and coverlet are useful once a Cecil backend exists:
 ## Postponed
 
 - Full Cecil backend.
-- Cross-target reference assembly selection through `MetadataLoadContext`.
-- Rich portable PDB/source-link support.
+- Cross-target reference assembly selection through `MetadataLoadContext` (`clojure-clr-rjb`).
+- Rich portable PDB/source-link support (`clojure-clr-zkm`).
 - `deftype*`, `reify*`, `gen-class`, and `proxy`.
 - Async method emission beyond current conditional support.

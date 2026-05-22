@@ -85,5 +85,5 @@ Explicitly defer:
 - `gen-class`
 - `proxy`
 - async method flags
-- debug symbols beyond current persisted save behavior
-- cross-target reference assembly support
+- verified persisted debug symbols (`clojure-clr-zkm`)
+- cross-target reference assembly support (`clojure-clr-rjb`)

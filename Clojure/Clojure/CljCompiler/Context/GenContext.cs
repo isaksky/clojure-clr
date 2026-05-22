@@ -100,6 +100,18 @@ namespace clojure.lang.CljCompiler.Context
             get { return ArtifactBackend == GeneratedArtifactBackend.Persisted; }
         }
 
+#if NET9_0_OR_GREATER
+        public Assembly PersistedCoreAssembly
+        {
+            get { return CanPersist ? _assyGen.PersistedCoreAssembly : null; }
+        }
+
+        public bool UsesSameRuntimePersistedCoreAssembly
+        {
+            get { return CanPersist && Object.ReferenceEquals(PersistedCoreAssembly, typeof(object).Assembly); }
+        }
+#endif
+
 
         public string Path { get; set; }
 
@@ -233,11 +245,7 @@ namespace clojure.lang.CljCompiler.Context
                 ? GeneratedArtifactBackend.Eval
                 : GeneratedArtifactBackend.Persisted;
 
-#if DEBUG
-            _isDebuggable = true;
-#else
-            _isDebuggable = false;
-#endif
+            _isDebuggable = ShouldEmitDebugInfo(assemblyType);
 
 #if NETFRAMEWORK || NET9_0_OR_GREATER
             switch (assemblyType)
@@ -290,6 +298,19 @@ namespace clojure.lang.CljCompiler.Context
             extension = extension ?? ".dll";
             return System.IO.Path.Combine(directory, name + extension);
 
+        }
+
+        private static bool ShouldEmitDebugInfo(AssemblyType assemblyType)
+        {
+#if DEBUG
+#if NET9_0_OR_GREATER
+            return assemblyType != AssemblyType.External;
+#else
+            return true;
+#endif
+#else
+            return false;
+#endif
         }
 
 
