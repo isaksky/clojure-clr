@@ -38,6 +38,22 @@ namespace Clojure.Tests.LibTests
 (def after-let :loaded)
 ";
 
+        private const string ProgressiveMacroBody = @"
+(def macro-suffix ""ok"")
+
+(defmacro defprogressive [name base]
+  (list 'def name (keyword (str base ""-"" macro-suffix))))
+
+(defprogressive macro-produced ""macro"")
+(def later-form-sees-macro-produced (str macro-produced))
+
+(defn later-fn []
+  (str later-form-sees-macro-produced ""|"" macro-produced))
+
+(def later-call (later-fn))
+(def after-macro :loaded)
+";
+
         [OneTimeSetUp]
         public void Setup()
         {
@@ -215,6 +231,58 @@ namespace Clojure.Tests.LibTests
             Assert.That(helperType.GetTypeBuilder(GeneratedArtifactBackend.Eval), Is.Not.Null);
             Assert.That(helperType.GetCreatedType(GeneratedArtifactBackend.Persisted), Is.Not.Null);
             Assert.That(helperType.GetCreatedType(GeneratedArtifactBackend.Eval), Is.Not.Null);
+        }
+
+        [Test]
+        public void ProgressiveMacroAotPreservesCompileTimeMacroAndLaterFormDependencies()
+        {
+            using AotSample sample = AotSample.Create(ProgressiveMacroBody);
+            CompileSample(sample);
+
+            Assert.That(VarValue(sample, "macro-produced"), Is.EqualTo(Keyword.intern(null, "macro-ok")));
+            Assert.That(VarValue(sample, "later-form-sees-macro-produced"), Is.EqualTo(":macro-ok"));
+            Assert.That(VarValue(sample, "later-call"), Is.EqualTo(":macro-ok|:macro-ok"));
+            Assert.That(VarValue(sample, "after-macro"), Is.EqualTo(Keyword.intern(null, "loaded")));
+
+            Assembly assembly = Assembly.LoadFrom(sample.AssemblyPath);
+            string[] typeNames = assembly.GetTypes().Select(t => t.FullName).ToArray();
+            Assert.That(typeNames, Does.Contain(sample.NamespaceName + "$defprogressive"),
+                "Persisted assembly should contain the generated macro function class.");
+        }
+
+        [Test]
+        public async Task ProgressiveMacroAotLoadsWithoutSourceInFreshProcess()
+        {
+            using AotSample sample = AotSample.Create(ProgressiveMacroBody);
+            CompileSample(sample);
+            sample.DeleteSourceTree();
+
+            string mainAssemblyPath = GetBuiltProjectAssemblyPath("Clojure.Main", "Clojure.Main.dll");
+            Assert.That(File.Exists(mainAssemblyPath), Is.True,
+                $"Build output for Clojure.Main was not found at {mainAssemblyPath}.");
+
+            string script =
+                $"(require '{sample.NamespaceName}) " +
+                $"(println @#'{sample.NamespaceName}/macro-produced) " +
+                $"(println @#'{sample.NamespaceName}/later-form-sees-macro-produced) " +
+                $"(println @#'{sample.NamespaceName}/later-call) " +
+                $"(println @#'{sample.NamespaceName}/after-macro)";
+
+            ProcessResult result = await RunProcessAsync("dotnet", sample.CompilePath, startInfo =>
+            {
+                startInfo.ArgumentList.Add(mainAssemblyPath);
+                startInfo.ArgumentList.Add("-e");
+                startInfo.ArgumentList.Add(script);
+                startInfo.Environment["DOTNET_ROLL_FORWARD"] = "Major";
+                startInfo.Environment[RT.ClojureLoadPathString] = sample.CompilePath;
+            });
+
+            Assert.That(result.ExitCode, Is.EqualTo(0), result.ToFailureMessage("progressive macro source-free load"));
+
+            string[] stdoutLines = result.StandardOutput
+                .Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+            Assert.That(stdoutLines, Is.EqualTo(new[] { ":macro-ok", ":macro-ok", ":macro-ok|:macro-ok", ":loaded" }),
+                result.ToFailureMessage("progressive macro source-free load"));
         }
 
         [Test]
@@ -404,6 +472,13 @@ namespace Clojure.Tests.LibTests
                 .ToArray();
         }
 
+        private static object VarValue(AotSample sample, string varName)
+        {
+            Var var = Var.find(Symbol.intern(sample.NamespaceName, varName));
+            Assert.That(var, Is.Not.Null, $"Compiled namespace should define {varName}.");
+            return var.deref();
+        }
+
         private static bool IsGeneratedHelperRuntimeName(string name)
         {
             return name is not null && Regex.IsMatch(name, @"\$helper__\d+(?=__|\$|$)");
@@ -515,7 +590,7 @@ namespace Clojure.Tests.LibTests
             public string RelativePath { get; }
             public string InitTypeName => "__Init__$" + NamespaceName.Replace(".", "$");
 
-            public static AotSample Create()
+            public static AotSample Create(string body = SampleBody)
             {
                 string workDir = Path.Combine(Path.GetTempPath(), "clj-aot-test-" + Guid.NewGuid().ToString("N"));
                 string sourceRoot = Path.Combine(workDir, "src");
@@ -530,7 +605,7 @@ namespace Clojure.Tests.LibTests
 
                 Directory.CreateDirectory(sourceDir);
                 Directory.CreateDirectory(compilePath);
-                File.WriteAllText(sourcePath, $"(ns {namespaceName})\n{SampleBody}");
+                File.WriteAllText(sourcePath, $"(ns {namespaceName})\n{body}");
 
                 return new AotSample(
                     workDir,
