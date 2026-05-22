@@ -554,6 +554,14 @@ namespace clojure.lang.CljCompiler.Context
             return typeBuilder.DefineMethod(name, attributes);
         }
 
+        public void DefineMethodOverride(
+            TypeBuilder typeBuilder,
+            MethodInfo implementation,
+            MethodInfo declaration)
+        {
+            typeBuilder.DefineMethodOverride(implementation, ResolveEmittedMethod(declaration));
+        }
+
         public CustomAttributeBuilder CreateCustomAttribute(ConstructorInfo constructor, object[] constructorArgs)
         {
             // CustomAttributeBuilder validates constructor argument types against runtime

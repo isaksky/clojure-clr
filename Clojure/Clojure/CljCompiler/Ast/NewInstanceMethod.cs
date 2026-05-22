@@ -300,8 +300,12 @@ namespace clojure.lang.CljCompiler.Ast
 
         public override void Emit(ObjExpr fn, TypeBuilder tb)
         {
-
-            MethodBuilder mb = tb.DefineMethod(MethodName, MethodAttributes.ReuseSlot | MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.HideBySig, ReturnType, ArgTypes);
+            MethodBuilder mb = fn.DefineGeneratedMethod(
+                tb,
+                MethodName,
+                MethodAttributes.ReuseSlot | MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.HideBySig,
+                ReturnType,
+                ArgTypes);
             SetCustomAttributes(mb);
 
             CljILGen ilg = new(mb.GetILGenerator());
@@ -323,7 +327,11 @@ namespace clojure.lang.CljCompiler.Ast
             }
 
             if (IsExplicit)
-                tb.DefineMethodOverride(mb, ExplicitMethodInfo);
+            {
+                GenContext context = Compiler.CompilerContextVar.deref() as GenContext
+                    ?? throw new InvalidOperationException("Generated IL emission requires an active compiler generation context.");
+                context.DefineMethodOverride(tb, mb, ExplicitMethodInfo);
+            }
         }
 
         #endregion

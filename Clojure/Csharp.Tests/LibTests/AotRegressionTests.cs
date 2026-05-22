@@ -93,6 +93,27 @@ namespace Clojure.Tests.LibTests
 (def protocol-result (aot-value ""ok""))
 ";
 
+        private const string DeftypeReifyBody = @"
+(defprotocol AotBoxProtocol
+  (box-value [x]))
+
+(deftype AotBox [x]
+  AotBoxProtocol
+  (box-value [this] x))
+
+(def boxed (->AotBox 41))
+(def boxed-value (box-value boxed))
+(def boxed-type-name (.FullName AotBox))
+
+(def reified
+  (let [prefix ""re""]
+    (reify AotBoxProtocol
+      (box-value [this] (str prefix ""ify"")))))
+
+(def reified-value (box-value reified))
+(def reified-type-name (.FullName (class reified)))
+";
+
         private static readonly string[] RuntimeNamespaceTranche =
         [
             "clojure.walk",
@@ -104,16 +125,6 @@ namespace Clojure.Tests.LibTests
 
         private static readonly UnsupportedGeneratedFormCase[] UnsupportedGeneratedFormCases =
         [
-            new(
-                "deftype*",
-                ns => $@"(ns {ns})
-(deftype AotBox [x])
-(def after-generated-form :unreachable)"),
-            new(
-                "reify*",
-                ns => $@"(ns {ns})
-(def disposable (reify System.IDisposable
-                  (Dispose [this] nil)))"),
             new(
                 "gen-class",
                 ns => $@"(ns {ns})
@@ -258,6 +269,66 @@ namespace Clojure.Tests.LibTests
                 "Persisted namespace assembly should contain the generated protocol interface.");
             Assert.That(assembly.GetReferencedAssemblies().Any(IsEvalOrInternalDynamicReference), Is.False,
                 "Generated protocol interface should not introduce transient dynamic assembly references.");
+        }
+
+        [Test]
+        public void ModernPersistedAotSupportsDeftypeAndReifyGeneratedTypes()
+        {
+            using AotSample sample = AotSample.Create(DeftypeReifyBody);
+            GenContext context = CompileSampleWithExplicitContext(sample);
+
+            Assert.That(VarValue(sample, "boxed-value"), Is.EqualTo(41));
+            Assert.That(VarValue(sample, "boxed-type-name"), Is.EqualTo(sample.NamespaceName + ".AotBox"));
+            Assert.That(VarValue(sample, "reified-value"), Is.EqualTo("reify"));
+            Assert.That((string)VarValue(sample, "reified-type-name"), Does.Contain("$reify__"));
+
+            GeneratedTypeRecord deftypeType = context.GeneratedArtifacts.Types.SingleOrDefault(
+                type => type.GetRuntimeName(GeneratedArtifactBackend.Persisted) == sample.NamespaceName + ".AotBox");
+            GeneratedTypeRecord deftypeBaseType = context.GeneratedArtifacts.Types.SingleOrDefault(
+                type => type.Id.LogicalName == "deftype-base:" + sample.NamespaceName + ".AotBox");
+            GeneratedTypeRecord reifyType = context.GeneratedArtifacts.Types.FirstOrDefault(
+                type => IsReifyRuntimeName(type.GetRuntimeName(GeneratedArtifactBackend.Persisted))
+                    && IsReifyRuntimeName(type.GetRuntimeName(GeneratedArtifactBackend.Eval))
+                    && HasPersistedMember(type, GeneratedMemberKind.Method, "box_value"));
+            GeneratedTypeRecord reifyBaseType = context.GeneratedArtifacts.Types.FirstOrDefault(
+                type => type.Id.LogicalName.StartsWith("deftype-base:", StringComparison.Ordinal)
+                    && IsReifyRuntimeName(type.GetRuntimeName(GeneratedArtifactBackend.Persisted))
+                    && IsReifyRuntimeName(type.GetRuntimeName(GeneratedArtifactBackend.Eval))
+                    && HasPersistedMember(type, GeneratedMemberKind.Method, "box_value"));
+
+            Assert.That(deftypeType, Is.Not.Null,
+                "deftype main class should be paired across persisted and eval backends."
+                + Environment.NewLine
+                + DumpGeneratedTypes(context));
+            Assert.That(deftypeBaseType, Is.Not.Null,
+                "deftype base class should be paired across persisted and eval backends."
+                + Environment.NewLine
+                + DumpGeneratedTypes(context));
+            Assert.That(reifyType, Is.Not.Null,
+                "reify main class should be paired across persisted and eval backends."
+                + Environment.NewLine
+                + DumpGeneratedTypes(context));
+            Assert.That(reifyBaseType, Is.Not.Null,
+                "reify base class should be paired across persisted and eval backends."
+                + Environment.NewLine
+                + DumpGeneratedTypes(context));
+
+            Assert.That(HasPersistedMember(deftypeType, GeneratedMemberKind.Constructor, ".ctor"), Is.True);
+            Assert.That(HasPersistedMember(deftypeType, GeneratedMemberKind.Method, "box_value"), Is.True);
+            Assert.That(HasPersistedMember(deftypeBaseType, GeneratedMemberKind.Field, "x"), Is.True);
+            Assert.That(HasPersistedMember(reifyType, GeneratedMemberKind.Constructor, ".ctor"), Is.True);
+            Assert.That(HasPersistedMember(reifyType, GeneratedMemberKind.Method, "box_value"), Is.True);
+
+            SaveExplicitContext(context);
+            Assembly assembly = Assembly.LoadFrom(sample.AssemblyPath);
+            string[] typeNames = assembly.GetTypes().Select(type => type.FullName).ToArray();
+
+            Assert.That(typeNames, Does.Contain(sample.NamespaceName + ".AotBox"),
+                "Persisted assembly should contain the generated deftype class.");
+            Assert.That(typeNames.Any(IsReifyRuntimeName), Is.True,
+                "Persisted assembly should contain the generated reify class.");
+            Assert.That(assembly.GetReferencedAssemblies().Any(IsEvalOrInternalDynamicReference), Is.False,
+                "deftype/reify persisted output must not reference transient eval/internal dynamic assemblies.");
         }
 
         [Test]
@@ -984,6 +1055,11 @@ namespace Clojure.Tests.LibTests
         private static bool IsGeneratedHelperRuntimeName(string name)
         {
             return name is not null && Regex.IsMatch(name, @"\$helper__\d+(?=__|\$|$)");
+        }
+
+        private static bool IsReifyRuntimeName(string name)
+        {
+            return name is not null && Regex.IsMatch(name, @"\$reify__\d+(?=__|\$|$)");
         }
 
         private static bool IsDynamicHostInteropHelper(string name)

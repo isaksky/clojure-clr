@@ -23,6 +23,7 @@ namespace clojure.lang.CljCompiler.Ast
 
         Dictionary<IPersistentVector, IList<MethodInfo>> _methodMap;
         public Dictionary<IPersistentVector, IList<MethodInfo>> MethodMap => _methodMap;
+        GeneratedTypeRecord _baseGeneratedType;
 
         #endregion
 
@@ -34,7 +35,6 @@ namespace clojure.lang.CljCompiler.Ast
             public Expr Parse(ParserContext pcon, object frm)
             {
                 // frm is: (deftype* tagname classname [fields] :implements [interfaces] :tag tagname methods*)
-                Compiler.CheckGeneratedFormAllowedInCurrentContext("deftype*");
 
                 ISeq rform = (ISeq)frm;
                 rform = RT.next(rform);
@@ -66,7 +66,6 @@ namespace clojure.lang.CljCompiler.Ast
             public Expr Parse(ParserContext pcon, object frm)
             {
                 // frm is:  (reify this-name? [interfaces] (method-name [args] body)* )
-                Compiler.CheckGeneratedFormAllowedInCurrentContext("reify*");
 
                 ISeq form = (ISeq)frm;
                 ObjMethod enclosingMethod = (ObjMethod)Compiler.MethodVar.deref();
@@ -181,7 +180,16 @@ namespace clojure.lang.CljCompiler.Ast
 
             GenContext genC = context.WithNewDynInitHelper(ret.InternalName + "__dynInitHelper_" + RT.nextID().ToString());
 
-            Type baseClass = ret.CompileBaseClass(genC, superClass, SeqToTypeArray(interfaces), frm);
+            Type baseClass;
+            Var.pushThreadBindings(RT.map(Compiler.CompilerContextVar, genC));
+            try
+            {
+                baseClass = ret.CompileBaseClass(genC, superClass, SeqToTypeArray(interfaces), frm);
+            }
+            finally
+            {
+                Var.popThreadBindings();
+            }
             Symbol thisTag = Symbol.intern(null, baseClass.FullName);
 
             try
@@ -281,14 +289,32 @@ namespace clojure.lang.CljCompiler.Ast
         Type CompileBaseClass(GenContext context, Type super, Type[] interfaces, Object frm)
         {
             //TypeBuilder tb = context.ModuleBuilder.DefineType(Compiler.CompileStubPrefix + "." + InternalName + RT.nextID(), TypeAttributes.Public | TypeAttributes.Abstract, super, interfaces);
-            TypeBuilder tb = context.ModuleBuilder.DefineType(Compiler.DeftypeBaseClassNamePrefix + "." + InternalName + RT.nextID(), TypeAttributes.Public | TypeAttributes.Abstract, super, interfaces);
+            string runtimeName = Compiler.DeftypeBaseClassNamePrefix + "." + InternalName + RT.nextID();
+            _baseGeneratedType ??= context.DeclareGeneratedType("deftype-base:" + GeneratedLogicalName(InternalName), runtimeName);
+            TypeBuilder tb = context.ModuleBuilder.DefineType(
+                runtimeName,
+                TypeAttributes.Public | TypeAttributes.Abstract,
+                context.ResolveEmittedType(super),
+                context.ResolveEmittedTypes(interfaces));
+            _baseGeneratedType = context.RegisterGeneratedType(_baseGeneratedType, runtimeName, tb);
 
-            tb.DefineDefaultConstructor(MethodAttributes.Public);
-            EmitClosedOverFields(tb);
-            DefineBaseClassClosedOverConstructors(super, tb);
-            DefineBaseClassMethods(interfaces, tb);
+            GeneratedTypeRecord mainGeneratedType = GeneratedType;
+            GeneratedType = _baseGeneratedType;
+            try
+            {
+                ConstructorBuilder defaultCtor = tb.DefineDefaultConstructor(MethodAttributes.Public);
+                RegisterGeneratedMember(GeneratedMemberKind.Constructor, ".ctor", defaultCtor);
+                EmitClosedOverFields(tb);
+                DefineBaseClassClosedOverConstructors(context, super, tb);
+                DefineBaseClassMethods(context, interfaces, tb);
+            }
+            finally
+            {
+                GeneratedType = mainGeneratedType;
+            }
 
             Type t = tb.CreateType();
+            context.RegisterGeneratedTypeCreated(_baseGeneratedType, t);
             BaseClass = t;
 
             BaseClassClosedOverCtor = GetConstructorWithArgCount(t, CtorTypes().Length);
@@ -302,12 +328,13 @@ namespace clojure.lang.CljCompiler.Ast
             return t;
         }
 
-        private void DefineBaseClassClosedOverConstructors(Type super, TypeBuilder tb)
+        private void DefineBaseClassClosedOverConstructors(GenContext context, Type super, TypeBuilder tb)
         {
             // ctor that takes closed-overs and does nothing
             if (CtorTypes().Length > 0)
             {
-                ConstructorBuilder cb = tb.DefineConstructor(MethodAttributes.Public, CallingConventions.HasThis, CtorTypes());
+                ConstructorBuilder cb = context.DefineConstructor(tb, MethodAttributes.Public, CallingConventions.HasThis, CtorTypes());
+                RegisterGeneratedMember(GeneratedMemberKind.Constructor, ".ctor", cb);
                 CljILGen ilg = new(cb.GetILGenerator());
                 ilg.EmitLoadArg(0);
                 ilg.Emit(OpCodes.Call, super.GetConstructor(Type.EmptyTypes));
@@ -340,7 +367,8 @@ namespace clojure.lang.CljCompiler.Ast
                             altCtorTypes = new Type[newLen];
                             for (int i = 0; i < altCtorTypes.Length; i++)
                                 altCtorTypes[i] = ctorTypes[i];
-                            ConstructorBuilder cb2 = tb.DefineConstructor(MethodAttributes.Public, CallingConventions.HasThis, altCtorTypes);
+                            ConstructorBuilder cb2 = context.DefineConstructor(tb, MethodAttributes.Public, CallingConventions.HasThis, altCtorTypes);
+                            RegisterGeneratedMember(GeneratedMemberKind.Constructor, ".ctor", cb2);
                             CljILGen ilg2 = new(cb2.GetILGenerator());
                             ilg2.EmitLoadArg(0);
                             for (int i = 0; i < newLen; i++)
@@ -362,7 +390,8 @@ namespace clojure.lang.CljCompiler.Ast
                                 altCtorTypes = new Type[newLen];
                                 for (int i = 0; i < altCtorTypes.Length; i++)
                                     altCtorTypes[i] = ctorTypes[i];
-                                ConstructorBuilder cb2 = tb.DefineConstructor(MethodAttributes.Public, CallingConventions.HasThis, altCtorTypes);
+                                ConstructorBuilder cb2 = context.DefineConstructor(tb, MethodAttributes.Public, CallingConventions.HasThis, altCtorTypes);
+                                RegisterGeneratedMember(GeneratedMemberKind.Constructor, ".ctor", cb2);
                                 CljILGen ilg2 = new(cb2.GetILGenerator());
                                 ilg2.EmitLoadArg(0);
                                 for (int i = 0; i < newLen; i++)
@@ -381,7 +410,7 @@ namespace clojure.lang.CljCompiler.Ast
             }
         }
 
-        private static void DefineBaseClassMethods(Type[] interfaces, TypeBuilder tb)
+        private void DefineBaseClassMethods(GenContext context, Type[] interfaces, TypeBuilder tb)
         {
             Dictionary<string, List<MethodInfo>> impled = [];
 
@@ -391,7 +420,7 @@ namespace clojure.lang.CljCompiler.Ast
                 {
                     bool isExplicit = HasShadowedMethod(mi, impled);
 
-                    EmitDummyMethod(tb, mi, isExplicit);
+                    EmitDummyMethod(context, tb, mi, isExplicit);
 
                     if (!impled.ContainsKey(mi.Name))
                         impled[mi.Name] = [];
@@ -531,7 +560,12 @@ namespace clojure.lang.CljCompiler.Ast
             {
                 // getBasis()
                 {
-                    MethodBuilder mbg = tb.DefineMethod("getBasis", MethodAttributes.Public | MethodAttributes.Static, typeof(IPersistentVector), Type.EmptyTypes);
+                    MethodBuilder mbg = DefineGeneratedMethod(
+                        tb,
+                        "getBasis",
+                        MethodAttributes.Public | MethodAttributes.Static,
+                        typeof(IPersistentVector),
+                        Type.EmptyTypes);
                     CljILGen ilg = new(mbg.GetILGenerator());
                     EmitValue(HintedFields, ilg);
                     ilg.Emit(OpCodes.Ret);
@@ -540,7 +574,12 @@ namespace clojure.lang.CljCompiler.Ast
                 if (Fields.count() > HintedFields.count())
                 {
                     // create(IPersistentMap)
-                    MethodBuilder mbc = tb.DefineMethod("create", MethodAttributes.Public | MethodAttributes.Static, tb, [typeof(IPersistentMap)]);
+                    MethodBuilder mbc = DefineGeneratedMethod(
+                        tb,
+                        "create",
+                        MethodAttributes.Public | MethodAttributes.Static,
+                        tb,
+                        [typeof(IPersistentMap)]);
                     CljILGen gen = new(mbc.GetILGenerator());
 
                     LocalBuilder kwLocal = gen.DeclareLocal(typeof(Keyword));
@@ -601,10 +640,13 @@ namespace clojure.lang.CljCompiler.Ast
                 foreach (MethodInfo mi in ms)
                 {
                     if (NeedsDummy(mi, implemented))
-                        EmitDummyMethod(tb, mi, true);
+                        EmitDummyMethod(CurrentGenContext(), tb, mi, true);
                 }
 
-            EmitHasArityMethod(TypeBuilder, null, false, 0);
+            RegisterGeneratedMember(
+                GeneratedMemberKind.Method,
+                "HasArity",
+                EmitHasArityMethod(TypeBuilder, null, false, 0));
         }
 
         private bool NeedsDummy(MethodInfo mi, HashSet<MethodInfo> implemented)
@@ -612,16 +654,28 @@ namespace clojure.lang.CljCompiler.Ast
             return !implemented.Contains(mi) && mi.DeclaringType.IsInterface && !(SupportsMeta && (mi.DeclaringType == typeof(IObj) || mi.DeclaringType == typeof(IMeta)));
         }
 
-        private static void EmitDummyMethod(TypeBuilder tb, MethodInfo mi, bool isExplicit)
+        private void EmitDummyMethod(GenContext context, TypeBuilder tb, MethodInfo mi, bool isExplicit)
         {
             string name = isExplicit ? ExplicitMethodName(mi) : mi.Name;
 
-            MethodBuilder mb = tb.DefineMethod(name, MethodAttributes.ReuseSlot | MethodAttributes.Public | MethodAttributes.Virtual, mi.ReturnType, Compiler.GetTypes(mi.GetParameters()));
+            MethodBuilder mb = context.DefineMethod(
+                tb,
+                name,
+                MethodAttributes.ReuseSlot | MethodAttributes.Public | MethodAttributes.Virtual,
+                mi.ReturnType,
+                Compiler.GetTypes(mi.GetParameters()));
+            RegisterGeneratedMember(GeneratedMemberKind.Method, name, mb);
             CljILGen gen = new(mb.GetILGenerator());
             gen.EmitNew(typeof(NotImplementedException), Type.EmptyTypes);
             gen.Emit(OpCodes.Throw);
             if (isExplicit)
-                tb.DefineMethodOverride(mb, mi);
+                context.DefineMethodOverride(tb, mb, mi);
+        }
+
+        private static GenContext CurrentGenContext()
+        {
+            return Compiler.CompilerContextVar.deref() as GenContext
+                ?? throw new InvalidOperationException("Generated IL emission requires an active compiler generation context.");
         }
 
         #endregion
