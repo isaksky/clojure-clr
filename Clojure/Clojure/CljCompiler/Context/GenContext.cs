@@ -422,7 +422,7 @@ namespace clojure.lang.CljCompiler.Context
 
         public Type ResolveGeneratedTypeForCurrentBackend(Type type)
         {
-            return _generatedArtifacts.ResolveGeneratedTypeForBackend(type, ArtifactBackend);
+            return ResolveGeneratedTypeForCurrentBackendCore(type);
         }
 
 #if NET9_0_OR_GREATER
@@ -434,7 +434,7 @@ namespace clojure.lang.CljCompiler.Context
 
         public Type[] ResolveEmittedTypes(Type[] types)
         {
-            if (types is null || !CanPersist)
+            if (types is null)
                 return types;
 
             Type[] resolved = null;
@@ -491,6 +491,84 @@ namespace clojure.lang.CljCompiler.Context
             return field;
         }
 #endif
+
+        private Type ResolveGeneratedTypeForCurrentBackendCore(Type type)
+        {
+            if (type is null)
+                return null;
+
+            Type backendType = _generatedArtifacts.ResolveGeneratedTypeForBackend(type, ArtifactBackend);
+            if (!ReferenceEquals(backendType, type))
+                return backendType;
+
+            if (type.IsGenericParameter)
+                return type;
+
+            if (type.HasElementType)
+            {
+                Type elementType = ResolveGeneratedTypeForCurrentBackendCore(type.GetElementType());
+                if (ReferenceEquals(elementType, type.GetElementType()))
+                    return type;
+
+                if (type.IsByRef)
+                    return elementType.MakeByRefType();
+                if (type.IsPointer)
+                    return elementType.MakePointerType();
+                if (type.IsArray)
+                    return type.IsSZArray ? elementType.MakeArrayType() : elementType.MakeArrayType(type.GetArrayRank());
+
+                return type;
+            }
+
+            if (type.IsGenericType && !type.IsGenericTypeDefinition)
+            {
+                Type genericDefinition = ResolveGeneratedTypeForCurrentBackendCore(type.GetGenericTypeDefinition());
+                Type[] genericArguments = ResolveGeneratedTypesForCurrentBackend(type.GetGenericArguments());
+
+                if (ReferenceEquals(genericDefinition, type.GetGenericTypeDefinition())
+                    && TypesReferenceEqual(genericArguments, type.GetGenericArguments()))
+                    return type;
+
+                return genericDefinition.MakeGenericType(genericArguments);
+            }
+
+            return type;
+        }
+
+        private Type[] ResolveGeneratedTypesForCurrentBackend(Type[] types)
+        {
+            if (types is null)
+                return null;
+
+            Type[] resolved = null;
+            for (int i = 0; i < types.Length; i++)
+            {
+                Type type = ResolveGeneratedTypeForCurrentBackendCore(types[i]);
+                if (!ReferenceEquals(type, types[i]))
+                {
+                    resolved ??= (Type[])types.Clone();
+                    resolved[i] = type;
+                }
+            }
+
+            return resolved ?? types;
+        }
+
+        private static bool TypesReferenceEqual(Type[] left, Type[] right)
+        {
+            if (ReferenceEquals(left, right))
+                return true;
+            if (left is null || right is null || left.Length != right.Length)
+                return false;
+
+            for (int i = 0; i < left.Length; i++)
+            {
+                if (!ReferenceEquals(left[i], right[i]))
+                    return false;
+            }
+
+            return true;
+        }
 
         public TypeBuilder AddInterfaceImplementation(TypeBuilder typeBuilder, Type interfaceType)
         {

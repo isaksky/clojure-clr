@@ -226,6 +226,29 @@ namespace Clojure.Tests.LibTests
         }
 
         [Test]
+        public void ExplicitTargetAotSupportsDynamicHostInteropCallSites()
+        {
+            string targetFramework = CurrentTestTargetFramework();
+            string referenceAssemblyDirectory = FindReferenceAssemblyDirectory(targetFramework);
+            if (referenceAssemblyDirectory is null)
+                Assert.Ignore($"No Microsoft.NETCore.App.Ref reference assemblies are installed for {targetFramework}.");
+
+            using AotSample sample = AotSample.Create(DynamicHostInteropBody);
+            GenContext context = CompileSampleWithExplicitContext(
+                sample,
+                targetFramework: targetFramework,
+                referenceAssemblyPath: referenceAssemblyDirectory);
+
+            Assert.That(VarValue(sample, "dynamic-result"), Is.EqualTo("42"));
+            Assert.That(VarValue(sample, "dynamic-length-result"), Is.EqualTo(4));
+
+            SaveExplicitContext(context);
+
+            AssertNoSystemPrivateCoreLibReference(sample.AssemblyPath, "explicit-target dynamic host interop namespace DLL");
+            AssertNoEvalOrInternalDynamicReferences(sample.AssemblyPath, "explicit-target dynamic host interop namespace DLL");
+        }
+
+        [Test]
         public void ModernPersistedAotSupportsRuntimeGenDelegateWrappers()
         {
             using AotSample sample = AotSample.Create(GenDelegateBody);

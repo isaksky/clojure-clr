@@ -111,10 +111,10 @@ namespace clojure.lang.CljCompiler.Context
                 throw new ArgumentException("Generating code from non-serializable CallSiteBinder.");
             }
 
-            Type delegateToUse = delegateType ?? node.DelegateType;
-            Type siteType = typeof(CallSite<>).MakeGenericType(delegateToUse);
+            Type delegateToUse = _context.ResolveEmittedType(delegateType ?? node.DelegateType);
+            Type siteType = _context.ResolveEmittedType(typeof(CallSite<>).MakeGenericType(delegateToUse));
             string fieldName = "sf" + _id++.ToString();
-            FieldBuilder fb = _typeGen.AddStaticField(siteType, fieldName);
+            FieldBuilder fb = _context.DefineField(_typeBuilder, fieldName, siteType, FieldAttributes.Public | FieldAttributes.Static);
             RegisterGeneratedMember(GeneratedMemberKind.Field, fieldName, fb);
 
             var siteInfo = new SiteInfo(fb, siteType, binder, delegateToUse);
@@ -324,7 +324,7 @@ namespace clojure.lang.CljCompiler.Context
 
             name = sb.ToString();
 
-            return _assemblyGen.ModuleBuilder.DefineType(name, attr, parent);
+            return _assemblyGen.ModuleBuilder.DefineType(name, attr, _context.ResolveEmittedType(parent));
         }
 
 
@@ -336,8 +336,8 @@ namespace clojure.lang.CljCompiler.Context
                 builder.FullName ?? builder.Name,
                 builder);
 
-            var ctor = builder.DefineConstructor(CtorAttributes, CallingConventions.Standard, _DelegateCtorSignature);
-            var method = builder.DefineMethod("Invoke", InvokeAttributes, returnType, parameters);
+            var ctor = _context.DefineConstructor(builder, CtorAttributes, CallingConventions.Standard, _DelegateCtorSignature);
+            var method = _context.DefineMethod(builder, "Invoke", InvokeAttributes, returnType, parameters);
             _context.RegisterGeneratedMember(generatedDelegateType, GeneratedMemberKind.Constructor, ".ctor", ctor);
             _context.RegisterGeneratedMember(generatedDelegateType, GeneratedMemberKind.Method, "Invoke", method);
 
@@ -464,10 +464,10 @@ namespace clojure.lang.CljCompiler.Context
             {
                 string setterName = string.Format("{0}_setter", si.FieldBuilder.Name);
 
-                MethodBuilder mbSetter = _typeBuilder.DefineMethod(
+                MethodBuilder mbSetter = _context.DefineMethod(
+                    _typeBuilder,
                     setterName,
                     MethodAttributes.Public | MethodAttributes.Static,
-                    CallingConventions.Standard,
                     si.SiteType,
                     Type.EmptyTypes);
                 RegisterGeneratedMember(GeneratedMemberKind.Method, setterName, mbSetter);

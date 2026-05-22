@@ -312,7 +312,8 @@ namespace clojure.lang.CljCompiler.Ast
             // delType = Microsoft.Scripting.Generation.Snippets.Shared.DefineDelegate("__interop__", returnType, paramTypes);
             delType = context.DynInitHelper.MakeDelegateType("__interop__", paramTypes, returnType);
 
-            mbLambda = context.TB.DefineMethod(methodName, MethodAttributes.Static | MethodAttributes.Public, CallingConventions.Standard, returnType, paramTypes);
+            Type emittedReturnType = context.ResolveEmittedType(returnType);
+            mbLambda = context.DefineMethod(context.TB, methodName, MethodAttributes.Static | MethodAttributes.Public, returnType, paramTypes);
             //lambda.CompileToMethod(mbLambda);
             // Now we get to do all this code create by hand.
             // the primary code is
@@ -340,12 +341,23 @@ namespace clojure.lang.CljCompiler.Ast
                 ilg2.Emit(OpCodes.Pop);
                 ilg2.EmitNull();
             }
-            else if (returnType != invokeMethod.ReturnType)
+            else if (!TypesMatch(emittedReturnType, invokeMethod.ReturnType))
             {
-                EmitConvertToType(ilg2, invokeMethod.ReturnType, returnType, false);
+                EmitConvertToType(ilg2, invokeMethod.ReturnType, emittedReturnType, false);
             }
 
             ilg2.Emit(OpCodes.Ret);
+        }
+
+        private static bool TypesMatch(Type left, Type right)
+        {
+            if (ReferenceEquals(left, right) || left == right)
+                return true;
+            if (left is null || right is null)
+                return false;
+
+            return string.Equals(left.FullName, right.FullName, StringComparison.Ordinal)
+                && string.Equals(left.Assembly.GetName().Name, right.Assembly.GetName().Name, StringComparison.OrdinalIgnoreCase);
         }
 
         static public void EmitDynamicCallPostlude(MethodBuilder mbLambda, CljILGen ilg)
