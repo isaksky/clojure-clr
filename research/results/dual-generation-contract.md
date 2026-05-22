@@ -1,0 +1,89 @@
+# Minimal Dual-Generation Contract
+
+## Direction
+
+Keep `CljILGen` and Reflection.Emit for the first implementation path, but stop passing raw generated `Type`, `FieldInfo`, `MethodInfo`, and `ConstructorInfo` across backend boundaries. Introduce a small generated-artifact identity layer first. A Cecil backend can later implement the same logical contract.
+
+## Core Data Structures
+
+```csharp
+readonly record struct GeneratedTypeId(string SourcePath, string LogicalName, int Ordinal);
+
+sealed class GeneratedTypePair
+{
+    public GeneratedTypeId Id { get; init; }
+    public Type EvalType { get; set; }
+    public TypeBuilder EvalTypeBuilder { get; set; }
+    public Type PersistedType { get; set; }
+    public TypeBuilder PersistedTypeBuilder { get; set; }
+    public Dictionary<string, GeneratedMemberPair> Members { get; } = [];
+}
+
+sealed class GeneratedMemberPair
+{
+    public string LogicalName { get; init; }
+    public MemberInfo EvalMember { get; set; }
+    public MemberInfo PersistedMember { get; set; }
+}
+```
+
+The exact implementation can be split by member kind, but every generated field, constructor, method, helper method, and delegate type needs the same idea: one logical artifact, two backend-local handles.
+
+## Minimal Backend Surface
+
+```csharp
+interface ICompilationBackend
+{
+    bool CanRunNow { get; }
+    TypeBuilder DefineType(GeneratedTypeId id, string runtimeName, Type baseType, TypeAttributes attrs);
+    FieldBuilder DefineField(GeneratedTypeId owner, string logicalName, Type fieldType, FieldAttributes attrs);
+    MethodBuilder DefineMethod(GeneratedTypeId owner, string logicalName, MethodAttributes attrs, Type returnType, Type[] args);
+    ConstructorBuilder DefineConstructor(GeneratedTypeId owner, MethodAttributes attrs, CallingConventions conventions, Type[] args);
+    CljILGen GetILGenerator(MethodBase method);
+    Type FinalizeType(GeneratedTypeId id);
+}
+```
+
+For the first implementation, this can wrap existing Reflection.Emit objects. It does not need to abstract every Cecil feature yet.
+
+## Finalization Rules
+
+- Eval type finalization may happen as soon as compile-time execution needs a real `Type`.
+- Persisted type finalization should be delayed until all persisted references for the namespace are known, unless Reflection.Emit requires earlier finalization for signatures.
+- If early finalization is unavoidable, all later references must use the finalized persisted `Type`, never the eval `Type`.
+- Helper and delegate types created by `DynInitHelper` must be finalized inside the same backend universe as the method bodies that reference them.
+
+## Constants, Vars, Keywords, Call-Sites
+
+- Vars and Keywords are runtime library objects and can be emitted independently into both backends.
+- Constant fields need paired field records when the constant is referenced from generated IL.
+- Constants that are generated `Type` values need logical type ids, not raw `System.Type` instances from the other universe.
+- Direct links should store `Var -> GeneratedTypeId` plus target method logical name.
+- Dynamic call-sites should store logical ids for helper type, delegate type, call-site field, and setter method.
+
+## First-Pass Policy
+
+Required:
+
+- `ns`
+- simple `def`
+- `defn`
+- top-level function invocation
+- naked top-level `let`
+- macro definition/use if it only needs eval-side execution and persisted init replay
+
+Constrain or disable:
+
+- Direct linking can be disabled globally for the first pass, or enabled only when `StaticInvokeExpr` resolves through the persisted side of a generated-type pair.
+
+Explicitly defer:
+
+- `deftype*`
+- `reify*`
+- `gen-class`
+- `proxy`
+- `gen-interface`
+- `gen-delegate`
+- async method flags
+- debug symbols beyond current persisted save behavior
+- cross-target reference assembly support
