@@ -22,6 +22,8 @@ namespace clojure.lang
 
         public static Type GenerateInterface(string iName, IPersistentMap attributes, Seqable extends, ISeq methods)
         {
+            Compiler.CheckGeneratedFormAllowedInCurrentContext("gen-interface");
+
             iName = iName.Replace('-', '_');
 
             GenContext context;

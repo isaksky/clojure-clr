@@ -75,11 +75,15 @@ namespace clojure.lang
 
         public static Type GenerateProxyClass(Type superclass, ISeq interfaces,  string className)
         {
+            Compiler.CheckGeneratedFormAllowedInCurrentContext("proxy");
+
             return new GenProxy(className).Generate(superclass, interfaces, PersistentHashMap.EMPTY, className);
         }
 
         public static Type GenerateProxyClass(Type superclass, ISeq interfaces, IPersistentMap attributes, string className)
         {
+            Compiler.CheckGeneratedFormAllowedInCurrentContext("proxy");
+
             return new GenProxy(className).Generate(superclass, interfaces, attributes, className);
         }
 

@@ -34,6 +34,7 @@ namespace clojure.lang.CljCompiler.Ast
             public Expr Parse(ParserContext pcon, object frm)
             {
                 // frm is: (deftype* tagname classname [fields] :implements [interfaces] :tag tagname methods*)
+                Compiler.CheckGeneratedFormAllowedInCurrentContext("deftype*");
 
                 ISeq rform = (ISeq)frm;
                 rform = RT.next(rform);
@@ -65,6 +66,8 @@ namespace clojure.lang.CljCompiler.Ast
             public Expr Parse(ParserContext pcon, object frm)
             {
                 // frm is:  (reify this-name? [interfaces] (method-name [args] body)* )
+                Compiler.CheckGeneratedFormAllowedInCurrentContext("reify*");
+
                 ISeq form = (ISeq)frm;
                 ObjMethod enclosingMethod = (ObjMethod)Compiler.MethodVar.deref();
                 string baseName = enclosingMethod is not null

@@ -41,6 +41,8 @@ namespace clojure.lang
 
         public static Delegate Create(Type delegateType, IFn fn)
         {
+            Compiler.CheckGeneratedFormAllowedInCurrentContext("gen-delegate");
+
             MethodInfo invokeMI = delegateType.GetMethod("Invoke");
             Type returnType = invokeMI.ReturnType;
             ParameterInfo[] delParams = invokeMI.GetParameters();

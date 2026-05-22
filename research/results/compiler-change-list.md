@@ -26,21 +26,25 @@ First-pass policy: dynamic host interop is rejected during modern .NET persisted
 
 ## Required For `deftype*` / `reify*`
 
+First-pass policy: `deftype*` and `reify*` are rejected during modern .NET persisted AOT compilation. Their generated abstract base/stub type, implementation type, constructors, fields, override metadata, and protocol/interface methods must be paired as one backend-aware type family before these forms can be saved safely.
+
 | File | Change | Dependency | Risk | Fallback |
 | --- | --- | --- | --- | --- |
-| `NewInstanceExpr.cs` | Pair generated abstract base class and implementation class. | Type family ids | Persisted implementation deriving from eval base is invalid | Explicitly reject during first milestone |
+| `NewInstanceExpr.cs` | Pair generated abstract base class and implementation class. Current first-pass guard rejects `deftype*` and `reify*` in persisted AOT contexts. | Type family ids | Persisted implementation deriving from eval base is invalid | Explicitly reject during first milestone |
 | `NewInstanceExpr.cs` | Map closed-over fields, constructors, alt constructors, `getBasis`, `create`, dummy methods. | Member pair registry | Constructor calls cross universes | Defer |
 | `NewInstanceMethod.cs` | Resolve explicit method overrides and implemented interfaces per backend. | Type/member import rules | Override metadata can point at wrong assembly/type | Defer |
 | `HostExpr.cs` / compiler type resolution | Make duplicate type lookup backend-aware. | Type pair registry | Host resolution may see persisted type during eval | Keep separate `_evalTypeMap` and `_compilerTypeMap`, expand to logical ids |
 
 ## Required For `gen-class`, `proxy`, `gen-interface`, `gen-delegate`
 
+First-pass policy: `gen-class`, `proxy`, `gen-interface`, and `gen-delegate` are rejected during modern .NET persisted AOT compilation. The current generators either save through separate assembly lifecycles or create runtime-observable wrapper/proxy types, so the persisted namespace path must not include them until each generator has a backend-aware pairing or a documented runtime-only representation.
+
 | File | Change | Dependency | Risk | Fallback |
 | --- | --- | --- | --- | --- |
-| `GenClass.cs` | Decide whether it remains a separate save pipeline or joins paired AOT backend. | Backend abstraction | Standalone class output has different lifecycle | Defer and document unsupported in first pass |
-| `GenProxy.cs` | Separate runtime proxy generation from persisted proxy generation. | Type pair registry | Proxy types are usually needed immediately | Runtime-only for first pass |
-| `GenInterface.cs` | Pair generated interface definitions and custom attributes. | Type pair registry | Interfaces may be referenced by later generated classes | Defer |
-| `GenDelegate.cs` | Pair wrapper class generation or keep runtime-only. | Type pair registry | Delegate reflection shape must remain exact | Runtime-only for first pass |
+| `GenClass.cs` | Decide whether it remains a separate save pipeline or joins paired AOT backend. Current first-pass guard rejects `gen-class` in persisted AOT contexts. | Backend abstraction | Standalone class output has different lifecycle | Defer and document unsupported in first pass |
+| `GenProxy.cs` | Separate runtime proxy generation from persisted proxy generation. Current first-pass guard rejects `proxy` class generation in persisted AOT contexts. | Type pair registry | Proxy types are usually needed immediately | Runtime-only for first pass |
+| `GenInterface.cs` | Pair generated interface definitions and custom attributes. Current first-pass guard rejects `gen-interface` in persisted AOT contexts. | Type pair registry | Interfaces may be referenced by later generated classes | Defer |
+| `GenDelegate.cs` | Pair wrapper class generation or keep runtime-only. Current first-pass guard rejects `gen-delegate` calls in persisted AOT contexts. | Type pair registry | Delegate reflection shape must remain exact | Runtime-only for first pass |
 
 ## Debug Symbols And Target Frameworks
 

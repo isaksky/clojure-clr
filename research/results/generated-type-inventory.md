@@ -24,13 +24,13 @@ rg -n "\b(DefineType|DefinePublicType|DefineNestedType|DefineMethod|DefineConstr
 
 | Path | Feature or trigger | Stage | Runnable during compile? | Persisted DLL needed? | User generated refs? | First milestone |
 | --- | --- | --- | --- | --- | --- | --- |
-| `NewInstanceExpr` | `deftype*`, `reify*` main generated type | Analysis builds methods then calls `ObjExpr.Compile` | Yes; class may be observed immediately | Yes for AOT | Base class, interfaces, fields, constructors, dummy methods, protocol methods | Defer, audit now |
-| `NewInstanceExpr.CompileBaseClass` | Abstract base/stub for `deftype*` and `reify*` | Analysis before main type compile | Yes | Paired persisted equivalent needed if persisted main type derives from it | Main generated type derives from generated base class | Defer |
-| `NewInstanceMethod` | Generated implementation methods for `deftype*`/`reify*` | Type emission | Yes | Yes | Method override metadata and explicit interface refs | Defer |
-| `GenClass` | `gen-class` | Separate compile action | No during normal namespace minimal compile, but generated class may load impl namespace at runtime | Yes, often as standalone `.dll` or `.exe` | Superclass, interfaces, exposed fields, Var static fields | Defer |
-| `GenProxy` | `proxy` | Runtime/eval generation, may register during compile | Yes | Possibly, but currently save is commented | Superclass/interfaces and method maps | Defer |
-| `GenInterface` | `gen-interface` | Separate compile action | Maybe observed after generation | Yes | Extends interfaces, custom attributes | Defer |
-| `GenDelegate` | `gen-delegate` wrapper class around `IFn` | Runtime/eval generation | Yes | Not for first namespace milestone | Delegate signature and wrapper field | Defer |
+| `NewInstanceExpr` | `deftype*`, `reify*` main generated type | Analysis builds methods then calls `ObjExpr.Compile` | Yes; class may be observed immediately | Yes for AOT | Base class, interfaces, fields, constructors, dummy methods, protocol methods | Rejected during persisted AOT first pass |
+| `NewInstanceExpr.CompileBaseClass` | Abstract base/stub for `deftype*` and `reify*` | Analysis before main type compile | Yes | Paired persisted equivalent needed if persisted main type derives from it | Main generated type derives from generated base class | Rejected during persisted AOT first pass |
+| `NewInstanceMethod` | Generated implementation methods for `deftype*`/`reify*` | Type emission | Yes | Yes | Method override metadata and explicit interface refs | Rejected during persisted AOT first pass |
+| `GenClass` | `gen-class` | Separate compile action | No during normal namespace minimal compile, but generated class may load impl namespace at runtime | Yes, often as standalone `.dll` or `.exe` | Superclass, interfaces, exposed fields, Var static fields | Rejected during persisted AOT first pass |
+| `GenProxy` | `proxy` | Runtime/eval generation, may register during compile | Yes | Possibly, but currently save is commented | Superclass/interfaces and method maps | Rejected during persisted AOT first pass |
+| `GenInterface` | `gen-interface` | Separate compile action | Maybe observed after generation | Yes | Extends interfaces, custom attributes | Rejected during persisted AOT first pass |
+| `GenDelegate` | `gen-delegate` wrapper class around `IFn` | Runtime/eval generation | Yes | Not for first namespace milestone | Delegate signature and wrapper field | Rejected during persisted AOT first pass |
 | `MyTypeGen` | Helper wrapper used by `DynInitHelper` | Helper type finalization | Yes if helper is eval-side | Yes if helper is persisted-side | Static call-site fields and methods | Covered by `DynInitHelper` |
 | `MyAssemblyGen.MakeDelegateType` | Generic delegate type factory | Helper generation | Yes for run assemblies | Yes for persisted assemblies | Delegate constructor/invoke method implementation flags | Defer unless host interop required |
 | `GenContext.AddInternalAssembly` | Dummy type/method used to identify runtime dynamic assemblies | Internal eval-context creation | Yes | No | No user references intended | Required only for direct-link safety |

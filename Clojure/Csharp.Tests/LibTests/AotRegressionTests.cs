@@ -61,6 +61,36 @@ namespace Clojure.Tests.LibTests
 (def dynamic-result (stringify-dynamic 42))
 ";
 
+        private static readonly UnsupportedGeneratedFormCase[] UnsupportedGeneratedFormCases =
+        [
+            new(
+                "deftype*",
+                ns => $@"(ns {ns})
+(deftype AotBox [x])
+(def after-generated-form :unreachable)"),
+            new(
+                "reify*",
+                ns => $@"(ns {ns})
+(def disposable (reify System.IDisposable
+                  (Dispose [this] nil)))"),
+            new(
+                "gen-class",
+                ns => $@"(ns {ns})
+(gen-class :name {ns}.GeneratedClass :load-impl-ns false)"),
+            new(
+                "proxy",
+                ns => $@"(ns {ns})
+(def writer (proxy [System.IO.StringWriter] []))"),
+            new(
+                "gen-interface",
+                ns => $@"(ns {ns})
+(gen-interface :name {ns}.GeneratedInterface :methods [[m [] Object]])"),
+            new(
+                "gen-delegate",
+                ns => $@"(ns {ns})
+(def starter (gen-delegate System.Threading.ThreadStart [] nil))")
+        ];
+
         [OneTimeSetUp]
         public void Setup()
         {
@@ -137,6 +167,21 @@ namespace Clojure.Tests.LibTests
             Assert.That(ex.InnerException.Message, Does.Contain("Dynamic host interop is not supported"));
             Assert.That(File.Exists(sample.AssemblyPath), Is.False,
                 "Rejected dynamic host interop forms should not leave a persisted namespace DLL.");
+        }
+
+        [TestCaseSource(nameof(UnsupportedGeneratedFormCases))]
+        public void ModernPersistedAotRejectsFirstPassGeneratedForms(UnsupportedGeneratedFormCase testCase)
+        {
+            using AotSample sample = AotSample.CreateFromSource(testCase.SourceFactory);
+
+            Exception ex = Assert.Catch<Exception>(() => CompileSample(sample));
+            InvalidOperationException unsupported = FindException<InvalidOperationException>(ex);
+
+            Assert.That(unsupported, Is.Not.Null, ex.ToString());
+            Assert.That(unsupported.Message, Does.Contain(testCase.FeatureName));
+            Assert.That(unsupported.Message, Does.Contain("persisted AOT"));
+            Assert.That(File.Exists(sample.AssemblyPath), Is.False,
+                "Rejected generated forms should not leave a persisted namespace DLL.");
         }
 
         [Test]
@@ -499,6 +544,20 @@ namespace Clojure.Tests.LibTests
             return var.deref();
         }
 
+        private static TException FindException<TException>(Exception ex)
+            where TException : Exception
+        {
+            while (ex is not null)
+            {
+                if (ex is TException matching)
+                    return matching;
+
+                ex = ex.InnerException;
+            }
+
+            return null;
+        }
+
         private static bool IsGeneratedHelperRuntimeName(string name)
         {
             return name is not null && Regex.IsMatch(name, @"\$helper__\d+(?=__|\$|$)");
@@ -612,6 +671,11 @@ namespace Clojure.Tests.LibTests
 
             public static AotSample Create(string body = SampleBody)
             {
+                return CreateFromSource(namespaceName => $"(ns {namespaceName})\n{body}");
+            }
+
+            public static AotSample CreateFromSource(Func<string, string> sourceFactory)
+            {
                 string workDir = Path.Combine(Path.GetTempPath(), "clj-aot-test-" + Guid.NewGuid().ToString("N"));
                 string sourceRoot = Path.Combine(workDir, "src");
                 string sourceDir = Path.Combine(sourceRoot, "aot");
@@ -625,7 +689,7 @@ namespace Clojure.Tests.LibTests
 
                 Directory.CreateDirectory(sourceDir);
                 Directory.CreateDirectory(compilePath);
-                File.WriteAllText(sourcePath, $"(ns {namespaceName})\n{body}");
+                File.WriteAllText(sourcePath, sourceFactory(namespaceName));
 
                 return new AotSample(
                     workDir,
@@ -656,6 +720,11 @@ namespace Clojure.Tests.LibTests
                 => $"{operation} failed with exit code {ExitCode}."
                    + $"{Environment.NewLine}stdout:{Environment.NewLine}{StandardOutput}"
                    + $"{Environment.NewLine}stderr:{Environment.NewLine}{StandardError}";
+        }
+
+        public sealed record UnsupportedGeneratedFormCase(string FeatureName, Func<string, string> SourceFactory)
+        {
+            public override string ToString() => FeatureName;
         }
     }
 }

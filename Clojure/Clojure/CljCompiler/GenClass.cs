@@ -79,6 +79,8 @@ namespace clojure.lang
             bool loadImplNamespace,
             IPersistentMap attributes)
         {
+            Compiler.CheckGeneratedFormAllowedInCurrentContext("gen-class");
+
             className = className.Replace('-', '_');
 
             string path = (string)Compiler.CompilePathVar.deref();
