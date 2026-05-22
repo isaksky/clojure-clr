@@ -83,6 +83,20 @@ namespace Clojure.Tests.LibTests
 (def starter (gen-delegate System.Threading.ThreadStart [] (reset! delegate-hit true)))
 ";
 
+        private const string MetadataTypeConstantsBody = @"
+(import '[System ObsoleteAttribute SerializableAttribute])
+
+(definterface ^{ObsoleteAttribute ""iface""} AotMetadataTypeConstants
+  (sample []))
+
+(def metadata-carrier
+  (with-meta 'carrier {:object-type System.Object
+                       :attribute-type ObsoleteAttribute
+                       :attribute-set #{SerializableAttribute}}))
+
+(def metadata-values (meta metadata-carrier))
+";
+
         private const string GeneratedInterfaceProtocolBody = @"
 (defprotocol AotProtocol
   (aot-value [x]))
@@ -413,6 +427,33 @@ namespace Clojure.Tests.LibTests
             AssertAotAttribute(parameter, "parameter", "parameter-property", "parameter-field");
 
             AssertNoSystemPrivateCoreLibReference(assemblyPath, "metadata-attribute direct emission DLL");
+        }
+
+        [Test]
+        public void ExplicitTargetAotSourceMetadataTypeConstantsDoNotLeakRuntimeCoreReferences()
+        {
+            string targetFramework = CurrentTestTargetFramework();
+            string referenceAssemblyDirectory = FindReferenceAssemblyDirectory(targetFramework);
+            if (referenceAssemblyDirectory is null)
+                Assert.Ignore($"No Microsoft.NETCore.App.Ref reference assemblies are installed for {targetFramework}.");
+
+            using AotSample sample = AotSample.Create(MetadataTypeConstantsBody);
+            GenContext context = CompileSampleWithExplicitContext(
+                sample,
+                targetFramework: targetFramework,
+                referenceAssemblyPath: referenceAssemblyDirectory);
+
+            Assert.That(VarValue(sample, "metadata-values"), Is.InstanceOf<IPersistentMap>());
+
+            SaveExplicitContext(context);
+
+            Assembly assembly = Assembly.LoadFrom(sample.AssemblyPath);
+            Type emittedInterface = assembly.GetType(sample.NamespaceName + ".AotMetadataTypeConstants", throwOnError: true);
+            ObsoleteAttribute attribute = emittedInterface.GetCustomAttribute<ObsoleteAttribute>();
+            Assert.That(attribute, Is.Not.Null, "Source metadata should still emit custom attributes.");
+            Assert.That(attribute.Message, Is.EqualTo("iface"));
+
+            AssertNoSystemPrivateCoreLibReference(sample.AssemblyPath, "source metadata Type constants namespace DLL");
         }
 
         [Test]

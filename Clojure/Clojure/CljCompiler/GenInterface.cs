@@ -396,7 +396,12 @@ namespace clojure.lang
             Type retType = (Type)sig.nth(2);
             ISeq pmetas = (ISeq)(sig.count() >= 4 ? sig.nth(3) : null);
 
-            MethodBuilder mb = proxyTB.DefineMethod(mname.Name, MethodAttributes.Abstract | MethodAttributes.Public| MethodAttributes.Virtual, retType, paramTypes);
+            MethodBuilder mb = context.DefineMethod(
+                proxyTB,
+                mname.Name,
+                MethodAttributes.Abstract | MethodAttributes.Public | MethodAttributes.Virtual,
+                retType,
+                paramTypes);
             context.RegisterGeneratedMember(generatedType, GeneratedMemberKind.Method, mname.Name, mb);
 
             SetCustomAttributes(context, mb, GenInterface.ExtractAttributes(RT.meta(mname)));

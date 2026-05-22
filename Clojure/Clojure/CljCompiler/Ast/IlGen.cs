@@ -80,7 +80,8 @@ namespace clojure.lang.CljCompiler.Ast
 
         public new void EmitType(Type type)
         {
-            base.EmitType(ResolveEmittedType(type));
+            base.Emit(OpCodes.Ldtoken, ResolveEmittedType(type));
+            base.Emit(OpCodes.Call, ResolveEmittedMethod(Compiler.Method_Type_GetTypeFromHandle));
         }
 
         public new void EmitFieldGet(FieldInfo field)
