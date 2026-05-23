@@ -1400,6 +1400,7 @@ namespace clojure.lang
         private static volatile Var MacroCheckVar = null;
         private static volatile bool MacroCheckLoading = false;
         private static readonly Object MacroCheckLock = new();
+        private static readonly Symbol SpecAlphaSym = Symbol.intern("clojure.spec.alpha");
 
         public static Var EnsureMacroCheck()
         {
@@ -1424,6 +1425,9 @@ namespace clojure.lang
         {
             if (RT.CHECK_SPECS && !MacroCheckLoading)
             {
+                if (TryFastCheckCoreMacroSpec(v, form.next()))
+                    return;
+
                 try
                 {
                     EnsureMacroCheck().applyTo(RT.cons(v, RT.list(form.next())));
@@ -1433,6 +1437,148 @@ namespace clojure.lang
                     throw new CompilerException((string)SourcePathVar.deref(), LineVarDeref(), ColumnVarDeref(), v.ToSymbol(), CompilerException.PhaseMacroSyntaxCheckKeyword, e);
                 }
             }
+        }
+
+        private static bool TryFastCheckCoreMacroSpec(Var v, ISeq args)
+        {
+            if (MacroCheckVar is not null || Namespace.find(SpecAlphaSym) is not null)
+                return false;
+
+            if (v?.ns is null || !Util.equals(v.ns.Name, RT.ClojureNamespace.Name))
+                return false;
+
+            return v.sym.Name switch
+            {
+                "ns" => IsNsMacroArgsSpecValid(args),
+                "defn" or "defn-" => IsDefnMacroArgsSpecValid(args),
+                "fn" => IsFnMacroArgsSpecValid(args),
+                "let" => IsLetMacroArgsSpecValid(args),
+
+                // clojure.core.specs.alpha does not define macro specs for these.
+                // While spec has not been loaded explicitly, macroexpand-check would
+                // load the spec stack only to find no spec for the Var.
+                "and" or "dosync" or "future" or "loop" or "sync" or "with-loading-context" => true,
+                _ => false
+            };
+        }
+
+        private static bool IsNsMacroArgsSpecValid(ISeq args)
+        {
+            if (args is null || !IsSimpleSymbol(args.first()))
+                return false;
+
+            ISeq rest = args.next();
+            if (rest is not null && rest.first() is string)
+                rest = rest.next();
+            if (rest is not null && rest.first() is IPersistentMap)
+                rest = rest.next();
+
+            return rest is null;
+        }
+
+        private static bool IsLetMacroArgsSpecValid(ISeq args)
+        {
+            if (args is null)
+                return false;
+
+            return IsBindingVector(args.first());
+        }
+
+        private static bool IsDefnMacroArgsSpecValid(ISeq args)
+        {
+            if (args is null || !IsSimpleSymbol(args.first()))
+                return false;
+
+            ISeq rest = args.next();
+            if (rest is not null && rest.first() is string)
+                rest = rest.next();
+            if (rest is not null && rest.first() is IPersistentMap)
+                rest = rest.next();
+
+            return IsFnTailSpecValid(rest);
+        }
+
+        private static bool IsFnMacroArgsSpecValid(ISeq args)
+        {
+            if (args is null)
+                return false;
+
+            ISeq rest = args;
+            if (IsSimpleSymbol(rest.first()))
+                rest = rest.next();
+
+            return IsFnTailSpecValid(rest);
+        }
+
+        private static bool IsFnTailSpecValid(ISeq args)
+        {
+            if (args is null)
+                return false;
+
+            if (args.first() is IPersistentVector paramList)
+                return IsParamList(paramList);
+
+            bool sawArity = false;
+            for (ISeq s = args; s is not null; s = s.next())
+            {
+                if (s.next() is null && s.first() is IPersistentMap)
+                    return sawArity;
+
+                if (!IsParamsAndBody(s.first()))
+                    return false;
+
+                sawArity = true;
+            }
+
+            return sawArity;
+        }
+
+        private static bool IsParamsAndBody(object form)
+        {
+            ISeq s = RT.seq(form);
+            return s is not null
+                && s.first() is IPersistentVector paramList
+                && IsParamList(paramList);
+        }
+
+        private static bool IsBindingVector(object form)
+        {
+            if (form is not IPersistentVector bindings || bindings.count() % 2 != 0)
+                return false;
+
+            for (int i = 0; i < bindings.count(); i += 2)
+            {
+                if (!IsRecognizedBindingForm(bindings.nth(i)))
+                    return false;
+            }
+
+            return true;
+        }
+
+        private static bool IsParamList(IPersistentVector paramList)
+        {
+            for (int i = 0; i < paramList.count(); i++)
+            {
+                object form = paramList.nth(i);
+                if (form is Symbol sym && sym.Namespace is null && sym.Name == "&")
+                    return i + 2 == paramList.count()
+                        && IsRecognizedBindingForm(paramList.nth(i + 1));
+
+                if (!IsRecognizedBindingForm(form))
+                    return false;
+            }
+
+            return true;
+        }
+
+        private static bool IsRecognizedBindingForm(object form)
+        {
+            return IsSimpleSymbol(form);
+        }
+
+        private static bool IsSimpleSymbol(object form)
+        {
+            return form is Symbol sym && sym.Namespace is null;
         }
 
 

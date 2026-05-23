@@ -637,6 +637,49 @@ namespace Clojure.Tests.LibTests
         }
 
         [Test]
+        public async Task CoreMacroSpecFastPathFallsBackForInvalidLet()
+        {
+            string mainAssemblyPath = GetBuiltProjectAssemblyPath("Clojure.Main", "Clojure.Main.dll");
+            Assert.That(File.Exists(mainAssemblyPath), Is.True,
+                $"Build output for Clojure.Main was not found at {mainAssemblyPath}.");
+
+            ProcessResult result = await RunProcessAsync("dotnet", GetRepoRoot(), startInfo =>
+            {
+                startInfo.ArgumentList.Add(mainAssemblyPath);
+                startInfo.ArgumentList.Add("-e");
+                startInfo.ArgumentList.Add("(let [x] x)");
+                startInfo.Environment["DOTNET_ROLL_FORWARD"] = "Major";
+            });
+
+            Assert.That(result.ExitCode, Is.EqualTo(1), result.ToFailureMessage("invalid let macro spec check"));
+            Assert.That(result.StandardError, Does.Contain("spec: :clojure.core.specs.alpha/bindings"),
+                result.ToFailureMessage("invalid let macro spec check"));
+        }
+
+        [Test]
+        public async Task CoreMacroSpecFastPathFallsBackForUnsupportedValidBindingForm()
+        {
+            string mainAssemblyPath = GetBuiltProjectAssemblyPath("Clojure.Main", "Clojure.Main.dll");
+            Assert.That(File.Exists(mainAssemblyPath), Is.True,
+                $"Build output for Clojure.Main was not found at {mainAssemblyPath}.");
+
+            ProcessResult result = await RunProcessAsync("dotnet", GetRepoRoot(), startInfo =>
+            {
+                startInfo.ArgumentList.Add(mainAssemblyPath);
+                startInfo.ArgumentList.Add("-e");
+                startInfo.ArgumentList.Add("(let [[x] [1]] (println x))");
+                startInfo.Environment["DOTNET_ROLL_FORWARD"] = "Major";
+            });
+
+            Assert.That(result.ExitCode, Is.EqualTo(0), result.ToFailureMessage("valid destructuring let macro spec check"));
+
+            string[] stdoutLines = result.StandardOutput
+                .Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+            Assert.That(stdoutLines, Is.EqualTo(new[] { "1" }),
+                result.ToFailureMessage("valid destructuring let macro spec check"));
+        }
+
+        [Test]
         public void MinimalNamespaceAotRecordsGeneratedArtifactIdentities()
         {
             using AotSample sample = AotSample.Create();
