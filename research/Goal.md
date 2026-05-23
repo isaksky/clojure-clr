@@ -52,6 +52,37 @@ Timing expectations for this target:
 - Include the normal top-level effects of loading the file, including the single `sample-results` computation, but do not add extra REPL evaluation or printing.
 - If this file takes materially longer than 500 ms when used as the startup benchmark, treat that as a startup/load regression or benchmark harness problem, not as expected behavior from the sample itself.
 
+## User-Facing Startup Surprise Gate
+
+In addition to the `spec_schema.clj` benchmark, maintain a small suite of fresh-process `clojure.main` startup probes that exercise common language and library features without doing meaningful runtime work.
+
+The purpose is to catch user-visible startup cliffs: no ordinary first use of a feature such as macro expansion, destructuring, protocol/deftype generation, multimethods, lazy seqs, namespace require, or `clojure.spec` should push a small program above the startup budget.
+
+Each probe must:
+
+- Run through `Clojure.Main.dll` in a fresh process.
+- Measure total wall-clock startup plus expression/script load time.
+- Avoid heavy loops or workload benchmarking.
+- Include only enough top-level evaluation to prove the feature path works.
+- Use the same Release output and packaging assumptions as the supported startup path, including generated namespace DLLs and ReadyToRun preparation when that is required for the branch's performance target.
+- Fail if any measured probe exceeds 500 ms.
+
+Initial probe coverage should include:
+
+- Baseline `-e "(println :ok)"`
+- Macro definition and expansion
+- Destructuring
+- Protocol plus `deftype`
+- Multimethod definition and dispatch
+- Lazy seq realization of a tiny value
+- First require of `clojure.string`
+- `clojure.spec.alpha` validation
+- `clojure.spec.test.alpha` instrumentation
+- A small script file combining macro/protocol/multimethod/require behavior
+- `Clojure/Clojure.Samples/clojure/samples/spec_schema.clj`
+
+If the suite only passes with a particular packaging step, such as ReadyToRun generation for compiled Clojure namespace DLLs, the gate must make that precondition explicit instead of silently measuring a different configuration.
+
 ## Leading Implementation Direction
 
 The likely approach is dual code generation:
