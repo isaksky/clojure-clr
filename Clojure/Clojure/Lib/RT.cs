@@ -395,15 +395,15 @@ namespace clojure.lang
         }
 
 #if MONO
-        public static bool checkSpecAsserts = ReadTrueFalseDefault(Environment.GetEnvironmentVariable("CLOJURE_SPEC_CHECK_ASSERTS"), false);
+        public static bool checkSpecAsserts = ReadTrueFalseDefault(ReadEnvironmentVariable("CLOJURE_SPEC_CHECK_ASSERTS", "clojure.spec.check-asserts"), false);
 #else
-        public static bool checkSpecAsserts = ReadTrueFalseDefault(Environment.GetEnvironmentVariable("clojure.spec.check-asserts"), false);
+        public static bool checkSpecAsserts = ReadTrueFalseDefault(ReadEnvironmentVariable("clojure.spec.check-asserts", "CLOJURE_SPEC_CHECK_ASSERTS"), false);
 #endif
 
 #if MONO
-        public static bool instrumentMacros = !ReadTrueFalseDefault(Environment.GetEnvironmentVariable("CLOJURE_SPEC_SKIP_MACROS"), false);
+        public static bool instrumentMacros = !ReadTrueFalseDefault(ReadEnvironmentVariable("CLOJURE_SPEC_SKIP_MACROS", "clojure.spec.skip-macros"), false);
 #else
-        public static bool instrumentMacros = !ReadTrueFalseDefault(Environment.GetEnvironmentVariable("clojure.spec.skip-macros"), false);
+        public static bool instrumentMacros = !ReadTrueFalseDefault(ReadEnvironmentVariable("clojure.spec.skip-macros", "CLOJURE_SPEC_SKIP_MACROS"), false);
 #endif
 
         internal static volatile bool CHECK_SPECS = false;
@@ -2545,6 +2545,18 @@ namespace clojure.lang
             else if ("false".Equals(s))
                 return false;
             return def;
+        }
+
+        static string ReadEnvironmentVariable(params string[] names)
+        {
+            foreach (string name in names)
+            {
+                string value = Environment.GetEnvironmentVariable(name);
+                if (value != null)
+                    return value;
+            }
+
+            return null;
         }
 
         static Object ReadTrueFalseUnknown(String s)
