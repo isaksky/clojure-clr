@@ -121,8 +121,9 @@ research/scripts/check-clojure-main-startup-suite.zsh
 This runs fresh `clojure.main` processes for small expression and script cases
 covering macro expansion, destructuring, protocol/deftype generation,
 multimethod dispatch, lazy seqs, first library require, `clojure.spec`
-validation/instrumentation, and the `spec_schema.clj` file target. It fails if
-any measured run exceeds `MAX_MS` (default `500`).
+validation/instrumentation, the `spec_schema.clj` file target, and small
+external-package demos for `Newtonsoft.Json` and `Microsoft.Data.Sqlite`. It
+fails if any measured run exceeds `MAX_MS` (default `500`).
 
 ## Constraints
 

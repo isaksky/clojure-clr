@@ -44,6 +44,18 @@ if [[ ! -f "$spec_schema_script" ]]; then
   exit 1
 fi
 
+newtonsoft_demo_script="Clojure/Clojure.Samples/clojure/samples/newtonsoft_demo.cljr"
+if [[ ! -f "$newtonsoft_demo_script" ]]; then
+  print -u2 "newtonsoft_demo.cljr was not found: $newtonsoft_demo_script"
+  exit 1
+fi
+
+sqlite_demo_script="Clojure/Clojure.Samples/clojure/samples/sqlite_demo.cljr"
+if [[ ! -f "$sqlite_demo_script" ]]; then
+  print -u2 "sqlite_demo.cljr was not found: $sqlite_demo_script"
+  exit 1
+fi
+
 target_dir=${main_dll:h}
 if [[ "${SKIP_CLJ_R2R:-false}" != "true" ]]; then
   print -u2 "Preparing generated Clojure namespace DLLs as ReadyToRun images in $target_dir"
@@ -93,6 +105,8 @@ case_ids=(
   expr-spec-instrument
   file-feature-script
   file-spec-schema
+  file-newtonsoft-demo
+  file-sqlite-demo
 )
 
 function build_command() {
@@ -132,6 +146,12 @@ function build_command() {
       ;;
     file-spec-schema)
       command+=("$spec_schema_script")
+      ;;
+    file-newtonsoft-demo)
+      command+=("$newtonsoft_demo_script")
+      ;;
+    file-sqlite-demo)
+      command+=("$sqlite_demo_script")
       ;;
     *)
       print -u2 "Unknown startup case: $id"

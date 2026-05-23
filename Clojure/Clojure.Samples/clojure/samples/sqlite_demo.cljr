@@ -1,0 +1,20 @@
+; A small Microsoft.Data.Sqlite startup sample for clojure.main benchmark coverage.
+
+(ns clojure.samples.sqlite-demo
+  (:import (Microsoft.Data.Sqlite SqliteConnection)))
+
+(System.Reflection.Assembly/Load "SQLitePCLRaw.batteries_v2")
+(SQLitePCL.Batteries_V2/Init)
+
+(defn scalar [^String sql]
+  (with-open [conn (SqliteConnection. "Data Source=:memory:")]
+    (.Open conn)
+    (with-open [cmd (.CreateCommand conn)]
+      (.set_CommandText cmd sql)
+      (.ExecuteScalar cmd))))
+
+(defn run []
+  {:library "Microsoft.Data.Sqlite"
+   :value (scalar "select 40 + 2")})
+
+(def sample-results (run))

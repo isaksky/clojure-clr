@@ -24,6 +24,9 @@
     <PackageReference Include="clojure.core.specs.alpha"/>
     <PackageReference Include="clojure.spec.alpha"/>
     <PackageReference Include="DynamicLanguageRuntime"/>
+    <PackageReference Include="Microsoft.Data.Sqlite"/>
+    <PackageReference Include="Newtonsoft.Json"/>
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3"/>
   </ItemGroup>
 
   <ItemGroup>

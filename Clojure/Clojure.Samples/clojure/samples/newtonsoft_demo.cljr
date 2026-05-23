@@ -1,0 +1,26 @@
+; A small Newtonsoft.Json startup sample for clojure.main benchmark coverage.
+
+(ns clojure.samples.newtonsoft-demo
+  (:import (Newtonsoft.Json.Linq JObject)))
+
+(def order-json
+  "{\"orderId\":\"SO-10001\",\"customer\":{\"id\":48,\"name\":\"Ada\"},\"lines\":[{\"sku\":\"WIDGET\",\"qty\":2,\"price\":12.5},{\"sku\":\"CABLE\",\"qty\":3,\"price\":4.25}]}")
+
+(defn token-text [^JObject doc ^String path]
+  (str (.SelectToken doc path)))
+
+(defn token-decimal [^JObject doc ^String path]
+  (System.Decimal/Parse (token-text doc path)))
+
+(defn run []
+  (let [doc (JObject/Parse order-json)
+        widget-total (* (token-decimal doc "lines[0].qty")
+                        (token-decimal doc "lines[0].price"))
+        cable-total (* (token-decimal doc "lines[1].qty")
+                       (token-decimal doc "lines[1].price"))]
+    {:order-id (token-text doc "orderId")
+     :customer-name (token-text doc "customer.name")
+     :line-count (.Count (.SelectToken doc "lines"))
+     :total (+ widget-total cable-total)}))
+
+(def sample-results (run))

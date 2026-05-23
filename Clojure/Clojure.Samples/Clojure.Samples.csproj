@@ -6,6 +6,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite"/>
+    <PackageReference Include="Newtonsoft.Json"/>
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3"/>
+  </ItemGroup>
+
+  <ItemGroup>
     <None Update="clojure\samples\ants.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
@@ -45,7 +51,13 @@
     <None Update="clojure\samples\interop\testinterop.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Update="clojure\samples\newtonsoft_demo.cljr">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Update="clojure\samples\proxy\testproxy.clj">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="clojure\samples\sqlite_demo.cljr">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Update="clojure\samples\sudoku_puzzles.clj">

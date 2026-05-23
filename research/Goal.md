@@ -80,8 +80,27 @@ Initial probe coverage should include:
 - `clojure.spec.test.alpha` instrumentation
 - A small script file combining macro/protocol/multimethod/require behavior
 - `Clojure/Clojure.Samples/clojure/samples/spec_schema.clj`
+- `Clojure/Clojure.Samples/clojure/samples/newtonsoft_demo.cljr`
+- `Clojure/Clojure.Samples/clojure/samples/sqlite_demo.cljr`
 
 If the suite only passes with a particular packaging step, such as ReadyToRun generation for compiled Clojure namespace DLLs, the gate must make that precondition explicit instead of silently measuring a different configuration.
+
+## External Package Startup Benchmarks
+
+The current external-package startup targets are:
+
+- `Clojure/Clojure.Samples/clojure/samples/newtonsoft_demo.cljr`
+- `Clojure/Clojure.Samples/clojure/samples/sqlite_demo.cljr`
+
+Run each script through `clojure.main` from a fresh process by passing the file
+path to `Clojure.Main.dll`. Measure total wall-clock startup plus file load
+time. Include the scripts' normal top-level effects, but do not add extra REPL
+evaluation, printing, loops, or workload functions.
+
+These targets use the same unchanged sub-500 ms total wall-clock budget as the
+other startup probes. The supported benchmark output must include the package
+assemblies needed by the scripts, including `Newtonsoft.Json`,
+`Microsoft.Data.Sqlite`, and the SQLitePCLRaw bundle/provider/native assets.
 
 ## Leading Implementation Direction
 
