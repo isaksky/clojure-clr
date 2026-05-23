@@ -1468,7 +1468,7 @@ namespace clojure.lang
                 // clojure.core.specs.alpha does not define macro specs for these.
                 // While spec has not been loaded explicitly, macroexpand-check would
                 // load the spec stack only to find no spec for the Var.
-                "and" or "dosync" or "future" or "loop" or "sync" or "with-loading-context" => true,
+                "and" or "or" or "dosync" or "future" or "loop" or "sync" or "with-loading-context" => true,
                 _ => false
             };
         }
@@ -2275,7 +2275,11 @@ namespace clojure.lang
         {
             try
             {
-                initType.InvokeMember("Initialize", BindingFlags.InvokeMethod | BindingFlags.Static | BindingFlags.Public, Type.DefaultBinder, null, []);
+                MethodInfo initializeMethod = initType.GetMethod("Initialize", BindingFlags.Static | BindingFlags.Public, null, Type.EmptyTypes, null);
+                if (initializeMethod == null)
+                    throw new MissingMethodException(initType.FullName, "Initialize");
+
+                ((Action)Delegate.CreateDelegate(typeof(Action), initializeMethod)).Invoke();
             }
             catch (Exception e)
             {

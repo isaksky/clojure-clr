@@ -6,6 +6,11 @@ repo_root=${script_dir:h:h}
 
 cd "$repo_root"
 
+if [[ "${SKIP_CLJ_R2R:-false}" != "true" ]]; then
+  research/scripts/readytorun-generated-clj-dlls.zsh \
+    Clojure/Clojure.Main/bin/Release/net10.0
+fi
+
 command=(
   dotnet
   Clojure/Clojure.Main/bin/Release/net10.0/Clojure.Main.dll

@@ -703,6 +703,29 @@ namespace Clojure.Tests.LibTests
         }
 
         [Test]
+        public async Task SpecTestCheckLazilyLoadsGenerators()
+        {
+            string mainAssemblyPath = GetBuiltProjectAssemblyPath("Clojure.Main", "Clojure.Main.dll");
+            Assert.That(File.Exists(mainAssemblyPath), Is.True,
+                $"Build output for Clojure.Main was not found at {mainAssemblyPath}.");
+
+            ProcessResult result = await RunProcessAsync("dotnet", GetRepoRoot(), startInfo =>
+            {
+                startInfo.ArgumentList.Add(mainAssemblyPath);
+                startInfo.ArgumentList.Add("-e");
+                startInfo.ArgumentList.Add("(do (require '[clojure.spec.alpha :as s] '[clojure.spec.test.alpha :as st]) (defn plus1 [x] (inc x)) (s/fdef plus1 :args (s/cat :x int?) :ret int?) (println (boolean (seq (st/check 'user/plus1 {:clojure.spec.test.check/opts {:num-tests 1}})))) nil)");
+                startInfo.Environment["DOTNET_ROLL_FORWARD"] = "Major";
+            });
+
+            Assert.That(result.ExitCode, Is.EqualTo(0), result.ToFailureMessage("lazy clojure.spec.gen.alpha check"));
+
+            string[] stdoutLines = result.StandardOutput
+                .Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+            Assert.That(stdoutLines, Is.EqualTo(new[] { "true" }),
+                result.ToFailureMessage("lazy clojure.spec.gen.alpha check"));
+        }
+
+        [Test]
         public async Task SpecSchemaSampleLoadsThroughClojureMain()
         {
             string repoRoot = GetRepoRoot();
