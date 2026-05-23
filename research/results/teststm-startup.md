@@ -2,8 +2,9 @@
 
 ## Target
 
-This benchmark is the initial `clojure.main` source-load target from
-[`research/Goal.md`](../Goal.md):
+This benchmark was an earlier `clojure.main` source-load probe. The active
+`research/Goal.md` target is now
+[`spec_schema.clj`](spec-schema-startup.md):
 
 ```sh
 dotnet Clojure/Clojure.Main/bin/Release/net10.0/Clojure.Main.dll \

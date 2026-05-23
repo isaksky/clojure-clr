@@ -520,6 +520,7 @@ namespace clojure.lang
         {
             try
             {
+                LoadSpecPackageAssemblies();
                 //Var.pushThreadBindings(RT.map(Compiler.CompileFilesVar, false));
                 // We need to prevent loading more than once.
                 IFn require = clojure.clr.api.Clojure.var("clojure.core", "require");
@@ -534,6 +535,44 @@ namespace clojure.lang
             }
         }
 
+        private static bool _specPackageAssembliesLoaded;
+
+        private static readonly object _specPackageAssembliesLock = new();
+
+        private static void LoadSpecPackageAssemblies()
+        {
+            if (_specPackageAssembliesLoaded)
+                return;
+
+            lock (_specPackageAssembliesLock)
+            {
+                if (_specPackageAssembliesLoaded)
+                    return;
+
+                string baseDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+
+                LoadSpecPackageAssemblyIfPresent(Path.Combine(baseDir, "clojure.spec.alpha.dll"));
+                LoadSpecPackageAssemblyIfPresent(Path.Combine(baseDir, "clojure.core.specs.alpha.dll"));
+
+                _specPackageAssembliesLoaded = true;
+            }
+        }
+
+        private static void LoadSpecPackageAssemblyIfPresent(string path)
+        {
+            if (!File.Exists(path))
+                return;
+
+            try
+            {
+                Assembly.LoadFile(path);
+            }
+            catch (FileLoadException)
+            {
+                // Already loaded in this context.
+            }
+        }
+
         public static void Init()
         {
             DoInit();
@@ -545,22 +584,6 @@ namespace clojure.lang
         static void DoInit()
         {
             if (INIT) { return; } else { INIT = true; }
-
-            // load spec
-            var optionsMapToUse = (Associative)Compiler.CompilerOptionsVar.deref() ?? PersistentHashMap.EMPTY;
-            Var.pushThreadBindings(RT.map(Compiler.CompilerOptionsVar, optionsMapToUse.assoc(Compiler.DirectLinkingKeyword, true)));
-
-            try
-            {
-                string baseDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-
-                Assembly.LoadFile(Path.Combine(baseDir, "clojure.spec.alpha.dll"));
-                Assembly.LoadFile(Path.Combine(baseDir, "clojure.core.specs.alpha.dll"));
-            }
-            finally
-            {
-                Var.popThreadBindings();
-            }
 
             PostBootstrapInit();
 

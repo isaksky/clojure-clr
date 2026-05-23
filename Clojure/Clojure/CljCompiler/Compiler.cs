@@ -1425,6 +1425,9 @@ namespace clojure.lang
         {
             if (RT.CHECK_SPECS && !MacroCheckLoading)
             {
+                if (IsKnownMacroWithoutSpec(v))
+                    return;
+
                 if (TryFastCheckCoreMacroSpec(v, form.next()))
                     return;
 
@@ -1439,11 +1442,19 @@ namespace clojure.lang
             }
         }
 
-        private static bool TryFastCheckCoreMacroSpec(Var v, ISeq args)
+        private static bool IsKnownMacroWithoutSpec(Var v)
         {
-            if (MacroCheckVar is not null || Namespace.find(SpecAlphaSym) is not null)
+            if (v?.ns is null || !Util.equals(v.ns.Name, SpecAlphaSym))
                 return false;
 
+            return v.sym.Name is "def" or "spec" or "multi-spec" or "keys" or "or" or "and" or "merge"
+                or "every" or "every-kv" or "coll-of" or "map-of" or "*" or "+" or "?" or "alt" or "cat"
+                or "&" or "conformer" or "fspec" or "tuple" or "fdef" or "keys*" or "nilable" or "inst-in"
+                or "int-in" or "double-in" or "assert";
+        }
+
+        private static bool TryFastCheckCoreMacroSpec(Var v, ISeq args)
+        {
             if (v?.ns is null || !Util.equals(v.ns.Name, RT.ClojureNamespace.Name))
                 return false;
 
@@ -1473,7 +1484,22 @@ namespace clojure.lang
             if (rest is not null && rest.first() is IPersistentMap)
                 rest = rest.next();
 
-            return rest is null;
+            for (ISeq s = rest; s is not null; s = s.next())
+            {
+                if (!IsNsReference(s.first()))
+                    return false;
+            }
+
+            return true;
+        }
+
+        private static bool IsNsReference(object form)
+        {
+            ISeq s = RT.seq(form);
+            if (s is null || s.first() is not Keyword keyword || keyword.Namespace is not null)
+                return false;
+
+            return keyword.Name is "refer-clojure" or "require" or "use" or "import" or "load" or "gen-class";
         }
 
         private static bool IsLetMacroArgsSpecValid(ISeq args)

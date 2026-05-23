@@ -680,6 +680,50 @@ namespace Clojure.Tests.LibTests
         }
 
         [Test]
+        public async Task CompiledSpecAlphaLoadsFromDefaultMainOutput()
+        {
+            string mainAssemblyPath = GetBuiltProjectAssemblyPath("Clojure.Main", "Clojure.Main.dll");
+            Assert.That(File.Exists(mainAssemblyPath), Is.True,
+                $"Build output for Clojure.Main was not found at {mainAssemblyPath}.");
+
+            ProcessResult result = await RunProcessAsync("dotnet", GetRepoRoot(), startInfo =>
+            {
+                startInfo.ArgumentList.Add(mainAssemblyPath);
+                startInfo.ArgumentList.Add("-e");
+                startInfo.ArgumentList.Add("(require 'clojure.spec.alpha) (println (boolean (resolve 'clojure.spec.alpha/valid?)))");
+                startInfo.Environment["DOTNET_ROLL_FORWARD"] = "Major";
+            });
+
+            Assert.That(result.ExitCode, Is.EqualTo(0), result.ToFailureMessage("compiled clojure.spec.alpha require"));
+
+            string[] stdoutLines = result.StandardOutput
+                .Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+            Assert.That(stdoutLines, Is.EqualTo(new[] { "true" }),
+                result.ToFailureMessage("compiled clojure.spec.alpha require"));
+        }
+
+        [Test]
+        public async Task SpecSchemaSampleLoadsThroughClojureMain()
+        {
+            string repoRoot = GetRepoRoot();
+            string mainAssemblyPath = GetBuiltProjectAssemblyPath("Clojure.Main", "Clojure.Main.dll");
+            string samplePath = Path.Combine(repoRoot, "Clojure.Samples", "clojure", "samples", "spec_schema.clj");
+            Assert.That(File.Exists(mainAssemblyPath), Is.True,
+                $"Build output for Clojure.Main was not found at {mainAssemblyPath}.");
+            Assert.That(File.Exists(samplePath), Is.True,
+                $"spec_schema.clj was not found at {samplePath}.");
+
+            ProcessResult result = await RunProcessAsync("dotnet", repoRoot, startInfo =>
+            {
+                startInfo.ArgumentList.Add(mainAssemblyPath);
+                startInfo.ArgumentList.Add(samplePath);
+                startInfo.Environment["DOTNET_ROLL_FORWARD"] = "Major";
+            });
+
+            Assert.That(result.ExitCode, Is.EqualTo(0), result.ToFailureMessage("spec_schema.clj clojure.main load"));
+        }
+
+        [Test]
         public void MinimalNamespaceAotRecordsGeneratedArtifactIdentities()
         {
             using AotSample sample = AotSample.Create();
