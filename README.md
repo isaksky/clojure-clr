@@ -1,17 +1,24 @@
 # Branch Summary
 
-Compared with `master...HEAD`, excluding `research/**`, this branch changes 44 non-research files with 6,712 insertions and 321 deletions.
+This branch is primarily interesting for the startup speed change in
+`Clojure.Main`. With generated `clojure.*.clj.dll` namespace assemblies copied
+into the main output and prepared as ReadyToRun images, the measured Release
+`net10.0` startup path is consistently under 500 ms on the tested scripts.
 
-Main changes:
+Same-session measurements were taken on 2026-05-23 on macOS 15.7 arm64 with
+.NET SDK `10.0.105` and runtime `10.0.5`. Each successful row used one warmup
+and three measured fresh processes.
 
-* Restored and expanded modern .NET persisted AOT support with paired eval/persisted generation contexts, generated artifact tracking, backend-aware type/member/custom-attribute emission, explicit reference-assembly target selection, portable debug metadata, and checks that prevent transient eval/internal dynamic assembly references from leaking into persisted output.
-* Reworked compiler emission paths so function classes, `deftype`, `reify`, dynamic interop helpers, `gen-interface`, `gen-class`, and `proxy` register generated types/members and route IL/type/member emission through `GenContext`.
-* Improved startup behavior by avoiding eager spec loading in `Clojure.Main` and `clojure.main`, only starting socket-server machinery when configured, loading spec package assemblies from build output, and adding core macro spec fast paths.
-* Added embedded `clojure.spec.test.alpha` source support with instrumentation/checking behavior and lazy generator loading.
-* Updated build plumbing for modern targets: `dotnet` compile-driver invocation, compiled spec package namespaces for net9+/net10+/net11+, project-relative AOT output copies, and `System.Reflection.MetadataLoadContext`.
-* Added sample programs for a spec schema workflow and Sudoku solving with sample Project Euler puzzles.
-* Added broad regression coverage for persisted AOT, source-free loading, runtime namespace tranches, generated forms, explicit target frameworks, metadata/custom attributes, debug symbols, direct-link suppression, spec startup, generated artifact tracking, and optional ILVerify.
-* Added branch workflow/tooling through `.beads/`, `AGENTS.md`, and `scripts/codex_beads_loop.bb`.
+| Startup probe | This branch median / p95 | `master` median / p95 | Change |
+| --- | ---: | ---: | ---: |
+| `-e "(println :ok)"` | `226.4 ms` / `227.2 ms` | `3133.9 ms` / `3141.7 ms` | `13.8x` faster |
+| First `clojure.string` require | `236.0 ms` / `236.2 ms` | `3123.1 ms` / `3126.5 ms` | `13.2x` faster |
+| Generated startup feature script | `307.7 ms` / `317.2 ms` | `3311.4 ms` / `3331.1 ms` | `10.8x` faster |
+| `samples/stm/teststm.clj` | `268.8 ms` / `270.2 ms` | `3281.8 ms` / `3288.2 ms` | `12.2x` faster |
+| `samples/spec_schema.clj` | `319.4 ms` / `323.0 ms` | `4761.2 ms` / `4778.8 ms` | `14.9x` faster |
+
+The useful pattern is simple: the branch starts comparable scripts in roughly
+`226-319 ms`, while `master` takes roughly `3.1-4.8 s`.
 
 # ClojureCLR
 
