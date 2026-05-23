@@ -1,3 +1,18 @@
+# Branch Summary
+
+Compared with `master...HEAD`, excluding `research/**`, this branch changes 44 non-research files with 6,712 insertions and 321 deletions.
+
+Main changes:
+
+* Restored and expanded modern .NET persisted AOT support with paired eval/persisted generation contexts, generated artifact tracking, backend-aware type/member/custom-attribute emission, explicit reference-assembly target selection, portable debug metadata, and checks that prevent transient eval/internal dynamic assembly references from leaking into persisted output.
+* Reworked compiler emission paths so function classes, `deftype`, `reify`, dynamic interop helpers, `gen-interface`, `gen-class`, and `proxy` register generated types/members and route IL/type/member emission through `GenContext`.
+* Improved startup behavior by avoiding eager spec loading in `Clojure.Main` and `clojure.main`, only starting socket-server machinery when configured, loading spec package assemblies from build output, and adding core macro spec fast paths.
+* Added embedded `clojure.spec.test.alpha` source support with instrumentation/checking behavior and lazy generator loading.
+* Updated build plumbing for modern targets: `dotnet` compile-driver invocation, compiled spec package namespaces for net9+/net10+/net11+, project-relative AOT output copies, and `System.Reflection.MetadataLoadContext`.
+* Added sample programs for a spec schema workflow and Sudoku solving with sample Project Euler puzzles.
+* Added broad regression coverage for persisted AOT, source-free loading, runtime namespace tranches, generated forms, explicit target frameworks, metadata/custom attributes, debug symbols, direct-link suppression, spec startup, generated artifact tracking, and optional ILVerify.
+* Added branch workflow/tooling through `.beads/`, `AGENTS.md`, and `scripts/codex_beads_loop.bb`.
+
 # ClojureCLR
 
 This project is a native implementation of Clojure on the Common Language Runtime (CLR),
