@@ -40,16 +40,16 @@ Implement an AOT compilation path that:
 
 The first concrete target for measuring source-load startup should be:
 
-`Clojure/Clojure.Samples/clojure/samples/stm/teststm.clj`
+`Clojure/Clojure.Samples/clojure/samples/spec_schema.clj`
 
-Run it as a script through `clojure.main` from a fresh process, for example by passing that file path to `Clojure.Main.dll`. This target is intentionally a small namespace load: it establishes `clojure.teststm`, defines `sleep`, two refs, `cycle-continue`, `make-future`, and `f1`, but it does not invoke `f1` at top level.
+Run it as a script through `clojure.main` from a fresh process, for example by passing that file path to `Clojure.Main.dll`. This target is intentionally a small namespace load that exercises `clojure.spec`: it establishes `clojure.samples.spec-schema`, requires `clojure.spec.alpha` and `clojure.spec.test.alpha`, defines predicate functions, specs, sample JSON-like maps, an instrumented `line-total` function, and computes `sample-results` at top level.
 
 Timing expectations for this target:
 
 - Measure only the time to start ClojureCLR and load the file through `clojure.main`.
 - The target budget is sub-500 ms total wall-clock time for that fresh-process startup plus file load.
-- Do not call `(f1 3 30)` or any other workload function as part of the startup benchmark.
-- Do not include any timing implied by the body of `f1`; its `sleep` call is inside a function definition and is not executed by loading the file.
+- Do not call any additional workload function as part of the startup benchmark.
+- Include the normal top-level effects of loading the file, including the single `sample-results` computation, but do not add extra REPL evaluation or printing.
 - If this file takes materially longer than 500 ms when used as the startup benchmark, treat that as a startup/load regression or benchmark harness problem, not as expected behavior from the sample itself.
 
 ## Leading Implementation Direction
@@ -122,5 +122,5 @@ A solution should be considered viable when the following work:
 3. Build a small experiment that emits equivalent simple function types into both a runnable dynamic assembly and a persisted assembly.
 4. Verify that the runnable type can update the Clojure environment while the persisted type remains saveable and independent.
 5. Extend the experiment to a namespace with multiple forms where later forms depend on earlier Vars.
-6. Use `Clojure/Clojure.Samples/clojure/samples/stm/teststm.clj` as the first `clojure.main` source-load benchmark target, measuring only startup plus file load against a sub-500 ms budget.
+6. Use `Clojure/Clojure.Samples/clojure/samples/spec_schema.clj` as the first `clojure.main` source-load benchmark target, measuring only startup plus file load against a sub-500 ms budget.
 7. Convert the experiment into a compiler abstraction only after the cross-reference rules are understood.
