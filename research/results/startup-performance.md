@@ -112,6 +112,18 @@ research/scripts/measure-startup.zsh
 
 Use `RUNS` and `WARMUPS` to override the default 10 measured runs and 2 warmups. Pass `-- <command...>` to measure a secondary startup command.
 
+Broader user-facing feature gate:
+
+```sh
+research/scripts/check-clojure-main-startup-suite.zsh
+```
+
+This runs fresh `clojure.main` processes for small expression and script cases
+covering macro expansion, destructuring, protocol/deftype generation,
+multimethod dispatch, lazy seqs, first library require, `clojure.spec`
+validation/instrumentation, and the `spec_schema.clj` file target. It fails if
+any measured run exceeds `MAX_MS` (default `500`).
+
 ## Constraints
 
 - Preserve Clojure load/eval semantics.
