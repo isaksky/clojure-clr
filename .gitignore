@@ -369,3 +369,7 @@ MigrationBackup/
 testing/
 
 Stage/
+
+# Claude Code local/runtime files
+.claude/scheduled_tasks.lock
+.claude/settings.local.json
