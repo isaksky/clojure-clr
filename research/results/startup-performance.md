@@ -6,9 +6,12 @@ Reduce default `Clojure.Main` startup time enough that modern persisted AOT prod
 
 Primary target for the current branch:
 
-- Command: `dotnet Clojure/Clojure.Main/bin/Release/net10.0/Clojure.Main.dll -e "(println :ok)"`
-- Environment: Release `net10.0`, warm filesystem, no `CLOJURE_LOAD_PATH` override
-- Required default behavior: compiled runtime `clojure.*.clj.dll` files are used from the `Clojure.Main` output directory
+- Command: installed global tool shim `clj-mayne -e "(println :ok)"`
+- Baseline command: installed global tool shim `Clojure.Main -e "(println :ok)"`
+- Environment: warm filesystem, no `CLOJURE_LOAD_PATH` override
+- Required branch behavior: compiled runtime `clojure.*.clj/c.dll` files are
+  installed in the tool payload, prepared as ReadyToRun images, and preferred
+  over source
 - Pass threshold: median of 10 runs <= 500 ms
 - Pass threshold: p95 of 10 runs <= 600 ms
 
@@ -17,8 +20,7 @@ Secondary target:
 - Command exercises a first library require, for example:
 
 ```sh
-dotnet Clojure/Clojure.Main/bin/Release/net10.0/Clojure.Main.dll \
-  -e "(require 'clojure.string) (println (clojure.string/upper-case \"ok\"))"
+clj-mayne -e "(require 'clojure.string) (println (clojure.string/upper-case \"ok\"))"
 ```
 
 The secondary target should be measured and tracked before declaring the broader startup goal complete, but the exact threshold should be set after the first benchmark/profiling pass.
@@ -32,49 +34,52 @@ The secondary target should be measured and tracked before declaring the broader
 
 ## Current Evidence
 
-Measurements from this branch at `fd5af306` on 2026-05-26 MDT:
+Installed global-tool comparison from this branch at `fd5af306` on 2026-05-26
+MDT:
 
 - SDK: .NET SDK 10.0.107, host/runtime 10.0.7.
 - OS/architecture: macOS 15.7.3 / Darwin arm64.
-- Configuration: Release `net10.0`, warm filesystem, no `CLOJURE_LOAD_PATH`.
-- Build commands:
+- Branch command: installed global tool shim `clj-mayne`.
+- Baseline command: installed global tool shim `Clojure.Main` from package
+  `clojure.main`.
+- Package versions: both installed packages reported `1.12.3-alpha8` in
+  `dotnet tool list --global`.
+- Installed payloads: `clj-mayne` had ReadyToRun namespace DLLs, 48 compiled
+  namespaces, and compiled spec namespaces. `Clojure.Main` had IL namespace
+  DLLs, 45 compiled namespaces, and source-loaded spec.
+- Expression comparison command:
 
 ```sh
-dotnet build Clojure/Clojure.Main/Clojure.Main.csproj \
-  -c Release \
-  -f net10.0 \
-  -p:TargetFrameworks=net10.0
-
-dotnet build Clojure/Clojure.Compile/Clojure.Compile.csproj \
-  -c Release \
-  -f net10.0 \
-  -p:TargetFrameworks=net10.0
+USERPROFILE=$HOME pwsh -NoProfile -Command \
+  './scripts/bench-startup.ps1 -Tools @("clj-mayne","Clojure.Main") -Runs 3 -Warmup 1'
 ```
 
-- ReadyToRun setup:
+- Script comparison command shape:
 
 ```sh
-research/scripts/readytorun-generated-clj-dlls.zsh \
-  Clojure/Clojure.Main/bin/Release/net10.0
+RUNS=3 WARMUPS=1 research/scripts/measure-startup.zsh -- \
+  clj-mayne Clojure/Clojure.Samples/clojure/samples/spec_schema.clj
 ```
 
-- Compiled namespace assemblies present in `Clojure.Main/bin/Release/net10.0`:
-  48 generated `clojure.*.clj/c.dll` files.
-- Gate command:
+Selected measured results:
 
-```sh
-RUNS=3 WARMUPS=1 MAX_MS=500 \
-  research/scripts/check-clojure-main-startup-suite.zsh
-```
+| Startup probe | `clj-mayne` median / p95 | `Clojure.Main` median / p95 | Result |
+| --- | ---: | ---: | --- |
+| `-e "(println :ok)"` | `174.5 ms` / `193.7 ms` | `676.0 ms` / `681.6 ms` | `3.9x` faster |
+| First `clojure.string` require | `185.7 ms` / `199.5 ms` | `697.5 ms` / `713.7 ms` | `3.8x` faster |
+| `clojure.spec.alpha` validation | `223.7 ms` / `244.8 ms` | `697.0 ms` / `701.8 ms` | `3.1x` faster |
+| `samples/stm/teststm.clj` | `219.4 ms` / `233.1 ms` | `695.8 ms` / `752.6 ms` | `3.2x` faster |
+| `samples/spec_schema.clj` | `247.8 ms` / `267.8 ms` | `904.6 ms` / `937.5 ms` | `3.7x` faster |
+| `samples/newtonsoft_demo.cljr` | `245.4 ms` / `245.7 ms` | Fails: missing `Newtonsoft.Json.Linq.JObject` | branch completes |
+| `samples/sqlite_demo.cljr` | `266.1 ms` / `274.8 ms` | Fails: missing `Microsoft.Data.Sqlite.SqliteConnection` | branch completes |
 
-- Gate result: passed; every direct `dotnet Clojure.Main.dll` fresh-process
-  run completed within 500 ms.
-- Slowest measured run: `284.8 ms` for `newtonsoft_demo.cljr`.
-- Selected median / p95 results:
-  baseline `175.7 ms` / `179.4 ms`; first `clojure.string` require
-  `192.4 ms` / `199.6 ms`; generated feature script `243.2 ms` / `244.7 ms`;
-  `spec_schema.clj` `248.5 ms` / `252.2 ms`; `teststm.clj`
-  `211.8 ms` / `227.0 ms`.
+The observed branch global-tool range was `173.6-274.8 ms`; the installed
+`Clojure.Main` baseline took `651.6-937.5 ms` on comparable successful probes
+and failed the two external-package script probes.
+
+Direct `dotnet Clojure.Main.dll` measurements from the build output were also
+taken during this update, but the installed global-tool comparison above is the
+user-facing benchmark for this branch.
 
 Measurements from this branch after commit `d7a16a3d`:
 
@@ -125,38 +130,38 @@ research/scripts/measure-startup.zsh -- \
 - Secondary measured runs, ms: `440.1, 493.8, 438.5, 435.9, 437.8, 431.3, 436.6, 428.5, 438.4, 438.2`.
 - Secondary result: median `438.0 ms`, p95 `493.8 ms`.
 
-The primary Release `net10.0` target now passes the `<= 500 ms` median and `<= 600 ms` p95 thresholds.
+The installed branch global tool now passes the `<= 500 ms` median and
+`<= 600 ms` p95 thresholds.
 
 ## Verification Commands
 
-Build the Release output and compiled runtime assemblies:
+List the installed global tools and confirm the command shims:
 
 ```sh
-dotnet build Clojure/Clojure.Compile/Clojure.Compile.csproj \
-  -c Release \
-  -f net10.0 \
-  -p:TargetFrameworks=net10.0
+dotnet tool list --global
+command -v clj-mayne
+command -v Clojure.Main
 ```
 
-Confirm compiled runtime DLLs are present in the default `Clojure.Main` output:
+Compare expression startup through the installed global-tool commands:
 
 ```sh
-find Clojure/Clojure.Main/bin/Release/net10.0 \
-  -maxdepth 1 \
-  -type f \
-  -name 'clojure*.clj.dll' \
-  | sort
+USERPROFILE=$HOME pwsh -NoProfile -Command \
+  './scripts/bench-startup.ps1 -Tools @("clj-mayne","Clojure.Main") -Runs 3 -Warmup 1'
 ```
 
-Repeatable timing command:
+Measure a script through either installed tool:
 
 ```sh
-research/scripts/measure-startup.zsh
+RUNS=3 WARMUPS=1 research/scripts/measure-startup.zsh -- \
+  clj-mayne Clojure/Clojure.Samples/clojure/samples/spec_schema.clj
 ```
 
-Use `RUNS` and `WARMUPS` to override the default 10 measured runs and 2 warmups. Pass `-- <command...>` to measure a secondary startup command.
+Use `RUNS` and `WARMUPS` to override the number of measured runs and warmups.
+Pass `-- <command...>` to measure another installed-tool command.
 
-Broader user-facing feature gate:
+The direct build-output gate is still useful for compiler/runtime development,
+but it is not the user-facing installed-tool comparison:
 
 ```sh
 research/scripts/check-clojure-main-startup-suite.zsh

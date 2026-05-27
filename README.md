@@ -1,38 +1,32 @@
 # Branch Summary
 
-This branch is primarily interesting for the startup speed change in
-`Clojure.Main`. With generated `clojure.*.clj.dll` namespace assemblies copied
-into the main output and prepared as ReadyToRun images, the measured Release
-`net10.0` command-line startup path is consistently under 500 ms on the tested
-scripts.
+This branch is primarily interesting for the startup speed change in the
+installed `clojure.main` global tool path. The comparison below uses the actual
+global-tool shims on `PATH`: this branch installed as `clj-mayne`, and the
+existing `clojure.main` package command `Clojure.Main`.
 
-The measurements below were taken on 2026-05-26 MDT on macOS 15.7.3 arm64 with
-.NET SDK `10.0.107` and runtime `10.0.7`, against this branch at `fd5af306`.
-Each row runs `dotnet Clojure/Clojure.Main/bin/Release/net10.0/Clojure.Main.dll`
-in fresh processes with one warmup and three measured runs. The output contained
-48 generated `clojure.*.clj/c.dll` namespace assemblies, prepared in place with
-`research/scripts/readytorun-generated-clj-dlls.zsh`.
+The measurements were taken on 2026-05-26 MDT on macOS 15.7.3 arm64 with .NET
+SDK `10.0.107` and runtime `10.0.7`. Each row uses one warmup and three measured
+fresh processes.
 
-| Startup probe | Median / p95 |
-| --- | ---: |
-| `-e "(println :ok)"` | `175.7 ms` / `179.4 ms` |
-| Macro definition and expansion | `215.6 ms` / `215.8 ms` |
-| Destructuring expression | `249.7 ms` / `254.1 ms` |
-| Protocol plus `deftype` | `235.7 ms` / `237.0 ms` |
-| Multimethod dispatch | `214.4 ms` / `214.7 ms` |
-| Lazy seq realization | `180.3 ms` / `182.3 ms` |
-| First `clojure.string` require | `192.4 ms` / `199.6 ms` |
-| `clojure.spec.alpha` validation | `212.5 ms` / `213.8 ms` |
-| `clojure.spec.test.alpha` instrumentation | `211.7 ms` / `213.4 ms` |
-| Generated startup feature script | `243.2 ms` / `244.7 ms` |
-| `samples/stm/teststm.clj` | `211.8 ms` / `227.0 ms` |
-| `samples/spec_schema.clj` | `248.5 ms` / `252.2 ms` |
-| `samples/newtonsoft_demo.cljr` | `277.7 ms` / `284.8 ms` |
-| `samples/sqlite_demo.cljr` | `249.9 ms` / `257.2 ms` |
+`dotnet tool list --global` showed both packages at `1.12.3-alpha8`. On disk,
+`clj-mayne` had 48 compiled namespaces prepared as ReadyToRun images, including
+compiled spec namespaces. `Clojure.Main` had 45 IL compiled namespaces and still
+source-loaded spec.
 
-The observed branch range for these direct `clojure.main` command-line probes
-was `175.6-284.8 ms`; the slowest measured run remained well under the 500 ms
-startup gate.
+| Startup probe | `clj-mayne` median / p95 | `Clojure.Main` median / p95 | Result |
+| --- | ---: | ---: | --- |
+| `-e "(println :ok)"` | `174.5 ms` / `193.7 ms` | `676.0 ms` / `681.6 ms` | `3.9x` faster |
+| First `clojure.string` require | `185.7 ms` / `199.5 ms` | `697.5 ms` / `713.7 ms` | `3.8x` faster |
+| `clojure.spec.alpha` validation | `223.7 ms` / `244.8 ms` | `697.0 ms` / `701.8 ms` | `3.1x` faster |
+| `samples/stm/teststm.clj` | `219.4 ms` / `233.1 ms` | `695.8 ms` / `752.6 ms` | `3.2x` faster |
+| `samples/spec_schema.clj` | `247.8 ms` / `267.8 ms` | `904.6 ms` / `937.5 ms` | `3.7x` faster |
+| `samples/newtonsoft_demo.cljr` | `245.4 ms` / `245.7 ms` | Fails: missing `Newtonsoft.Json.Linq.JObject` | branch completes |
+| `samples/sqlite_demo.cljr` | `266.1 ms` / `274.8 ms` | Fails: missing `Microsoft.Data.Sqlite.SqliteConnection` | branch completes |
+
+The observed branch global-tool range was `173.6-274.8 ms`; the existing
+`Clojure.Main` global tool took `651.6-937.5 ms` on comparable successful probes
+and failed the two external-package script probes.
 
 # ClojureCLR
 

@@ -6,44 +6,39 @@ It started from the research goal in [`Goal.md`](Goal.md): preserve progressive
 Clojure load/eval semantics while producing source-free persisted namespace
 DLLs on .NET 9+.
 
-## Direct `Clojure.Main` Command-Line Startup
+## Installed Global Tool Startup
 
 Same-session measurements were taken on 2026-05-26 MDT on macOS 15.7.3 arm64
 with .NET SDK `10.0.107` and runtime `10.0.7`.
 
 - Branch under test: `isak-aot` at `fd5af306`, plus local documentation edits.
-- Configuration: Release `net10.0`.
-- Command shape: `dotnet Clojure/Clojure.Main/bin/Release/net10.0/Clojure.Main.dll ...`.
+- Branch command: installed global tool shim `clj-mayne`.
+- Baseline command: installed global tool shim `Clojure.Main` from package
+  `clojure.main`.
+- Package versions: both installed packages reported `1.12.3-alpha8` in
+  `dotnet tool list --global`.
 - Timing harness: 1 warmup and 3 measured fresh processes.
-- Setup: built `Clojure.Main`, built `Clojure.Compile`, then prepared the 48
-  generated `clojure.*.clj/c.dll` namespace assemblies in the default
-  `Clojure.Main` output as ReadyToRun images with
-  `research/scripts/readytorun-generated-clj-dlls.zsh`.
-- Gate result: `research/scripts/check-clojure-main-startup-suite.zsh` passed
-  with `RUNS=3 WARMUPS=1 MAX_MS=500`; the slowest measured run was `284.8 ms`.
+- Installed payload inspection: `clj-mayne` uses ReadyToRun generated namespace
+  DLLs, with `clojure.core.clj.dll` at about 3.3 MB, 48 compiled namespaces, and
+  compiled spec namespaces. `Clojure.Main` uses IL generated namespace DLLs,
+  with `clojure.core.clj.dll` at about 0.9 MB, 45 compiled namespaces, and spec
+  source-loaded.
 
-| Startup probe | Status | Median / p95 |
-| --- | --- | ---: |
-| Baseline expression: `-e "(println :ok)"` | Pass | `175.7 ms` / `179.4 ms` |
-| Macro definition and expansion | Pass | `215.6 ms` / `215.8 ms` |
-| Destructuring expression | Pass | `249.7 ms` / `254.1 ms` |
-| Protocol plus `deftype` | Pass | `235.7 ms` / `237.0 ms` |
-| Multimethod dispatch | Pass | `214.4 ms` / `214.7 ms` |
-| Lazy seq realization | Pass | `180.3 ms` / `182.3 ms` |
-| First `clojure.string` require expression | Pass | `192.4 ms` / `199.6 ms` |
-| `clojure.spec.alpha` validation | Pass | `212.5 ms` / `213.8 ms` |
-| `clojure.spec.test.alpha` instrumentation | Pass | `211.7 ms` / `213.4 ms` |
-| Generated feature script from the startup gate | Pass | `243.2 ms` / `244.7 ms` |
-| `Clojure/Clojure.Samples/clojure/samples/stm/teststm.clj` | Pass | `211.8 ms` / `227.0 ms` |
-| `Clojure/Clojure.Samples/clojure/samples/spec_schema.clj` | Pass | `248.5 ms` / `252.2 ms` |
-| `Clojure/Clojure.Samples/clojure/samples/newtonsoft_demo.cljr` | Pass | `277.7 ms` / `284.8 ms` |
-| `Clojure/Clojure.Samples/clojure/samples/sqlite_demo.cljr` | Pass | `249.9 ms` / `257.2 ms` |
+| Startup probe | `clj-mayne` median / p95 | `Clojure.Main` median / p95 | Result |
+| --- | ---: | ---: | --- |
+| Baseline expression: `-e "(println :ok)"` | `174.5 ms` / `193.7 ms` | `676.0 ms` / `681.6 ms` | `3.9x` faster |
+| First `clojure.string` require expression | `185.7 ms` / `199.5 ms` | `697.5 ms` / `713.7 ms` | `3.8x` faster |
+| `clojure.spec.alpha` validation | `223.7 ms` / `244.8 ms` | `697.0 ms` / `701.8 ms` | `3.1x` faster |
+| `Clojure/Clojure.Samples/clojure/samples/stm/teststm.clj` | `219.4 ms` / `233.1 ms` | `695.8 ms` / `752.6 ms` | `3.2x` faster |
+| `Clojure/Clojure.Samples/clojure/samples/spec_schema.clj` | `247.8 ms` / `267.8 ms` | `904.6 ms` / `937.5 ms` | `3.7x` faster |
+| `Clojure/Clojure.Samples/clojure/samples/newtonsoft_demo.cljr` | `245.4 ms` / `245.7 ms` | Fails: missing `Newtonsoft.Json.Linq.JObject` | branch completes |
+| `Clojure/Clojure.Samples/clojure/samples/sqlite_demo.cljr` | `266.1 ms` / `274.8 ms` | Fails: missing `Microsoft.Data.Sqlite.SqliteConnection` | branch completes |
 
 Historical master comparisons and older 10-run measurements are kept in the
-focused result files under [`research/results`](results). The current direct
-`clojure.main` command-line check confirms that this branch's compiled/R2R
-namespace path is comfortably below the sub-500 ms startup budget for the tested
-scripts.
+focused result files under [`research/results`](results). The current installed
+global-tool comparison confirms that this branch's compiled/R2R namespace path
+is materially faster than the installed `Clojure.Main` tool on successful probes
+and includes external-package assets that the installed baseline lacks.
 
 ## Research And Direction
 
@@ -104,7 +99,7 @@ scripts.
 | Direct initializer delegates | Replaced reflection `InvokeMember` initializer calls on generated namespace DLLs with direct initializer delegates. | Implemented; contributed to spec benchmark improvement. |
 | ReadyToRun generated namespaces | Added `readytorun-generated-clj-dlls.zsh` to prepare generated `clojure.*.clj.dll` assemblies with crossgen2. | Implemented; required for the sub-500 ms script suite. |
 | Startup gate script | Added `check-clojure-main-startup-suite.zsh` covering baseline expressions, macro expansion, destructuring, protocol/deftype, multimethods, lazy seqs, first require, spec validation/instrumentation, a generated feature script, `spec_schema`, and external package scripts. | Implemented; default budget is `MAX_MS=500`. |
-| External package demos | Added `newtonsoft_demo.cljr` and `sqlite_demo.cljr` plus package output dependencies/assets for startup probes. | Implemented; branch passes the direct command-line startup gate. |
+| External package demos | Added `newtonsoft_demo.cljr` and `sqlite_demo.cljr` plus package output dependencies/assets for startup probes. | Implemented; branch passes the installed global-tool comparison. |
 | Sudoku sample | Added Sudoku solver and Project Euler puzzle samples. | Added as sample code; not part of the current startup gate. |
 
 ## Startup Attempt Log
@@ -119,8 +114,8 @@ scripts.
 | Lazy spec loading in `clojure.main` | Trivial startup reached about `419 ms` median in the documented 10-run run. | Kept. |
 | Core macro spec fast path | `teststm.clj` improved from about `1016 ms` median to about `476 ms` median before generated namespace ReadyToRun became the supported startup path. Rechecking by temporarily disabling the fast path after R2R showed a smaller current benefit: `teststm.clj` worsened by about `25.5 ms` and `spec_schema.clj` by about `13.3 ms`, while baseline `println` and the generated feature script were effectively unchanged. | Kept, but classified as a secondary optimization rather than the main current startup win. |
 | Spec path polish and direct initializer delegates | IL-only `spec_schema` path reached about `619 ms` median. | Kept, still insufficient alone. |
-| ReadyToRun generated namespace DLLs | `spec_schema` reached about `306.9 ms` median in the documented 10-run run, and the current direct command-line check measured `248.5 ms` median / `252.2 ms` p95. | Kept; required packaging step for the startup gate. |
-| External package startup probes | The current direct command-line check measured `newtonsoft_demo.cljr` at `277.7 ms` median / `284.8 ms` p95 and `sqlite_demo.cljr` at `249.9 ms` median / `257.2 ms` p95. | Kept. |
+| ReadyToRun generated namespace DLLs | `spec_schema` reached about `306.9 ms` median in the documented 10-run run, and the current installed global-tool check measured `247.8 ms` median / `267.8 ms` p95. | Kept; required packaging step for the startup gate. |
+| External package startup probes | The current installed global-tool check measured `newtonsoft_demo.cljr` at `245.4 ms` median / `245.7 ms` p95 and `sqlite_demo.cljr` at `266.1 ms` median / `274.8 ms` p95. | Kept. |
 
 ## Tests And Tooling
 
@@ -138,7 +133,9 @@ The branch has a viable persisted AOT architecture for the current milestone:
 compiled namespaces can be emitted, loaded without source, and kept separate
 from eval-only dynamic artifacts for the tested compiler forms. The startup
 work also changed the user-facing behavior: with compiled and ReadyToRun
-generated namespace DLLs in the default `Clojure.Main` output, the current
-direct command-line probes start in roughly `176-285 ms` on this machine.
+generated namespace DLLs in the installed `clj-mayne` tool, the current
+global-tool probes start in roughly `174-275 ms` on this machine. The installed
+baseline `Clojure.Main` tool takes roughly `652-938 ms` on comparable successful
+probes and fails the two external-package script probes.
 
 There are no open ready beads at the time of this summary update.
