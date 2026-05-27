@@ -36,23 +36,23 @@
 			<TargetCmdline Condition=" '$(OS)' == 'Unix' ">mono $(TargetPath)</TargetCmdline>
 		</PropertyGroup>
 		<PropertyGroup Condition=" '$(TargetFramework)' == 'net9.0' OR '$(TargetFramework)' == 'net10.0'  OR '$(TargetFramework)' == 'net11.0'">
-			<TargetCmdline Condition=" $(TargetCmdline) == '' ">$(TargetDir)$(TargetName).exe</TargetCmdline>
-			<TargetCmdline Condition=" '$(OS)' == 'Unix' ">mono $(TargetPath)</TargetCmdline>
+			<TargetCmdline Condition=" $(TargetCmdline) == '' ">dotnet &quot;$(TargetPath)&quot;</TargetCmdline>
 		</PropertyGroup>
 		<Message Importance="high" Text="TargetCmdLine = '$(TargetCmdLine)'"/>
 		<Exec Condition=" '$(TargetFramework)' == 'net462' OR '$(TargetFramework)' == 'net481'"                                        Command="$(TargetCmdline) clojure.core clojure.core.protocols clojure.core.server clojure.core.reducers clojure.main clojure.set clojure.zip  clojure.walk clojure.stacktrace clojure.template clojure.test clojure.test.tap clojure.test.junit clojure.pprint clojure.clr.io clojure.repl clojure.clr.shell clojure.string clojure.data clojure.reflect  clojure.edn clojure.datafy clojure.instant clojure.uuid clojure.math clojure.clr.basis.impl clojure.clr.basis clojure.clr.process clojure.tools.deps.interop clojure.repl.deps" WorkingDirectory="$(OutDir)" />
 		<Exec Condition=" '$(TargetFramework)' == 'net9.0' OR '$(TargetFramework)' == 'net10.0' OR '$(TargetFramework)' == 'net11.0'"  Command="$(TargetCmdline) clojure.core clojure.core.protocols clojure.core.server clojure.core.reducers clojure.main clojure.set clojure.zip  clojure.walk clojure.stacktrace clojure.template clojure.test clojure.test.tap clojure.test.junit clojure.pprint clojure.clr.io clojure.repl clojure.clr.shell clojure.string clojure.data clojure.reflect  clojure.edn clojure.datafy clojure.instant clojure.uuid clojure.math clojure.clr.basis.impl clojure.clr.basis clojure.clr.process clojure.tools.deps.interop clojure.repl.deps" WorkingDirectory="$(OutDir)" />
+		<Exec Condition=" '$(TargetFramework)' == 'net9.0' OR '$(TargetFramework)' == 'net10.0' OR '$(TargetFramework)' == 'net11.0'"  Command="$(TargetCmdline) clojure.spec.alpha clojure.spec.gen.alpha clojure.core.specs.alpha clojure.spec.test.alpha" WorkingDirectory="$(OutDir)" EnvironmentVariables="clojure.spec.skip-macros=true" />
 	    <Exec Condition=" '$(TargetFramework)' == 'net11.0'"                                                                           Command="$(TargetCmdline) clojure.core clojure.core.protocols clojure.core.server clojure.core.reducers clojure.main clojure.set clojure.zip  clojure.walk clojure.stacktrace clojure.template clojure.test clojure.test.tap clojure.test.junit clojure.pprint clojure.clr.io clojure.repl clojure.clr.shell clojure.string clojure.data clojure.reflect  clojure.edn clojure.datafy clojure.instant clojure.uuid clojure.math clojure.clr.basis.impl clojure.clr.basis clojure.clr.process clojure.tools.deps.interop clojure.repl.deps clojure.clr.async.task.alpha" WorkingDirectory="$(OutDir)" />
 
 	  <ItemGroup>
 			<CljCoreBin Include="$(ProjectDir)$(OutDir)clojure*.dll" />
 		</ItemGroup>
-		<Copy SourceFiles="@(CljCoreBin)" DestinationFolder="$(SolutionDir)Clojure.Main461\$(OutDir)" Condition="  '$(TargetFramework)' == 'net462' "/>
-		<Copy SourceFiles="@(CljCoreBin)" DestinationFolder="$(SolutionDir)Clojure.Main461\Content\$(OutDir)" Condition="  '$(TargetFramework)' == 'net462' "/>
-	    <Copy SourceFiles="@(CljCoreBin)" DestinationFolder="$(SolutionDir)Clojure.Main461\$(OutDir)" Condition="  '$(TargetFramework)' == 'net481' "/>
-	    <Copy SourceFiles="@(CljCoreBin)" DestinationFolder="$(SolutionDir)Clojure.Main461\Content\$(OutDir)" Condition="  '$(TargetFramework)' == 'net481' "/>	  
-	    <Copy SourceFiles="@(CljCoreBin)" DestinationFolder="$(SolutionDir)Clojure.Main\$(OutDir)" Condition="  '$(TargetFramework)' == 'net9.0' OR '$(TargetFramework)' == 'net10.0'  OR '$(TargetFramework)' == 'net11.0'"/>
-	    <Copy SourceFiles="@(CljCoreBin)" DestinationFolder="$(SolutionDir)Clojure.Main\Content\$(OutDir)" Condition="  '$(TargetFramework)' == 'net9.0' OR '$(TargetFramework)' == 'net10.0'  OR '$(TargetFramework)' == 'net11.0'"/>
+		<Copy SourceFiles="@(CljCoreBin)" DestinationFolder="$(MSBuildThisFileDirectory)..\Clojure.Main461\$(OutDir)" Condition="  '$(TargetFramework)' == 'net462' "/>
+		<Copy SourceFiles="@(CljCoreBin)" DestinationFolder="$(MSBuildThisFileDirectory)..\Clojure.Main461\Content\$(OutDir)" Condition="  '$(TargetFramework)' == 'net462' "/>
+	    <Copy SourceFiles="@(CljCoreBin)" DestinationFolder="$(MSBuildThisFileDirectory)..\Clojure.Main461\$(OutDir)" Condition="  '$(TargetFramework)' == 'net481' "/>
+	    <Copy SourceFiles="@(CljCoreBin)" DestinationFolder="$(MSBuildThisFileDirectory)..\Clojure.Main461\Content\$(OutDir)" Condition="  '$(TargetFramework)' == 'net481' "/>	  
+	    <Copy SourceFiles="@(CljCoreBin)" DestinationFolder="$(MSBuildThisFileDirectory)..\Clojure.Main\$(OutDir)" Condition="  '$(TargetFramework)' == 'net9.0' OR '$(TargetFramework)' == 'net10.0'  OR '$(TargetFramework)' == 'net11.0'"/>
+	    <Copy SourceFiles="@(CljCoreBin)" DestinationFolder="$(MSBuildThisFileDirectory)..\Clojure.Main\Content\$(OutDir)" Condition="  '$(TargetFramework)' == 'net9.0' OR '$(TargetFramework)' == 'net10.0'  OR '$(TargetFramework)' == 'net11.0'"/>
 	</Target>
 
 
