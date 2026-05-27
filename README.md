@@ -3,22 +3,36 @@
 This branch is primarily interesting for the startup speed change in
 `Clojure.Main`. With generated `clojure.*.clj.dll` namespace assemblies copied
 into the main output and prepared as ReadyToRun images, the measured Release
-`net10.0` startup path is consistently under 500 ms on the tested scripts.
+`net10.0` command-line startup path is consistently under 500 ms on the tested
+scripts.
 
-Same-session measurements were taken on 2026-05-23 on macOS 15.7 arm64 with
-.NET SDK `10.0.105` and runtime `10.0.5`. Each successful row used one warmup
-and three measured fresh processes.
+The measurements below were taken on 2026-05-26 MDT on macOS 15.7.3 arm64 with
+.NET SDK `10.0.107` and runtime `10.0.7`, against this branch at `fd5af306`.
+Each row runs `dotnet Clojure/Clojure.Main/bin/Release/net10.0/Clojure.Main.dll`
+in fresh processes with one warmup and three measured runs. The output contained
+48 generated `clojure.*.clj/c.dll` namespace assemblies, prepared in place with
+`research/scripts/readytorun-generated-clj-dlls.zsh`.
 
-| Startup probe | This branch median / p95 | `master` median / p95 | Change |
-| --- | ---: | ---: | ---: |
-| `-e "(println :ok)"` | `226.4 ms` / `227.2 ms` | `3133.9 ms` / `3141.7 ms` | `13.8x` faster |
-| First `clojure.string` require | `236.0 ms` / `236.2 ms` | `3123.1 ms` / `3126.5 ms` | `13.2x` faster |
-| Generated startup feature script | `307.7 ms` / `317.2 ms` | `3311.4 ms` / `3331.1 ms` | `10.8x` faster |
-| `samples/stm/teststm.clj` | `268.8 ms` / `270.2 ms` | `3281.8 ms` / `3288.2 ms` | `12.2x` faster |
-| `samples/spec_schema.clj` | `319.4 ms` / `323.0 ms` | `4761.2 ms` / `4778.8 ms` | `14.9x` faster |
+| Startup probe | Median / p95 |
+| --- | ---: |
+| `-e "(println :ok)"` | `175.7 ms` / `179.4 ms` |
+| Macro definition and expansion | `215.6 ms` / `215.8 ms` |
+| Destructuring expression | `249.7 ms` / `254.1 ms` |
+| Protocol plus `deftype` | `235.7 ms` / `237.0 ms` |
+| Multimethod dispatch | `214.4 ms` / `214.7 ms` |
+| Lazy seq realization | `180.3 ms` / `182.3 ms` |
+| First `clojure.string` require | `192.4 ms` / `199.6 ms` |
+| `clojure.spec.alpha` validation | `212.5 ms` / `213.8 ms` |
+| `clojure.spec.test.alpha` instrumentation | `211.7 ms` / `213.4 ms` |
+| Generated startup feature script | `243.2 ms` / `244.7 ms` |
+| `samples/stm/teststm.clj` | `211.8 ms` / `227.0 ms` |
+| `samples/spec_schema.clj` | `248.5 ms` / `252.2 ms` |
+| `samples/newtonsoft_demo.cljr` | `277.7 ms` / `284.8 ms` |
+| `samples/sqlite_demo.cljr` | `249.9 ms` / `257.2 ms` |
 
-The useful pattern is simple: the branch starts comparable scripts in roughly
-`226-319 ms`, while `master` takes roughly `3.1-4.8 s`.
+The observed branch range for these direct `clojure.main` command-line probes
+was `175.6-284.8 ms`; the slowest measured run remained well under the 500 ms
+startup gate.
 
 # ClojureCLR
 

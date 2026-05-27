@@ -32,6 +32,50 @@ The secondary target should be measured and tracked before declaring the broader
 
 ## Current Evidence
 
+Measurements from this branch at `fd5af306` on 2026-05-26 MDT:
+
+- SDK: .NET SDK 10.0.107, host/runtime 10.0.7.
+- OS/architecture: macOS 15.7.3 / Darwin arm64.
+- Configuration: Release `net10.0`, warm filesystem, no `CLOJURE_LOAD_PATH`.
+- Build commands:
+
+```sh
+dotnet build Clojure/Clojure.Main/Clojure.Main.csproj \
+  -c Release \
+  -f net10.0 \
+  -p:TargetFrameworks=net10.0
+
+dotnet build Clojure/Clojure.Compile/Clojure.Compile.csproj \
+  -c Release \
+  -f net10.0 \
+  -p:TargetFrameworks=net10.0
+```
+
+- ReadyToRun setup:
+
+```sh
+research/scripts/readytorun-generated-clj-dlls.zsh \
+  Clojure/Clojure.Main/bin/Release/net10.0
+```
+
+- Compiled namespace assemblies present in `Clojure.Main/bin/Release/net10.0`:
+  48 generated `clojure.*.clj/c.dll` files.
+- Gate command:
+
+```sh
+RUNS=3 WARMUPS=1 MAX_MS=500 \
+  research/scripts/check-clojure-main-startup-suite.zsh
+```
+
+- Gate result: passed; every direct `dotnet Clojure.Main.dll` fresh-process
+  run completed within 500 ms.
+- Slowest measured run: `284.8 ms` for `newtonsoft_demo.cljr`.
+- Selected median / p95 results:
+  baseline `175.7 ms` / `179.4 ms`; first `clojure.string` require
+  `192.4 ms` / `199.6 ms`; generated feature script `243.2 ms` / `244.7 ms`;
+  `spec_schema.clj` `248.5 ms` / `252.2 ms`; `teststm.clj`
+  `211.8 ms` / `227.0 ms`.
+
 Measurements from this branch after commit `d7a16a3d`:
 
 - Before default copy-path fix, trivial `Clojure.Main -e "(println :ok)"` startup was about 5.2-5.4 seconds because default `Clojure.Main` output contained source files but not compiled runtime DLLs.
